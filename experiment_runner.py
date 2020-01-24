@@ -18,46 +18,6 @@ from functools import partial
 
 import numpy as np
 
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
-
-class NoDaemonProcess(multiprocessing.Process):
-    # make 'daemon' attribute always return False
-    def _get_daemon(self):
-        return False
-    def _set_daemon(self, value):
-        pass
-    daemon = property(_get_daemon, _set_daemon)
-
-# We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
-# because the latter is only a wrapper function, not a proper class.
-class MyPool(multiprocessing.pool.Pool):
-    Process = NoDaemonProcess
-
-import multiprocessing
-import multiprocessing.pool
-from multiprocessing import Manager
-import json
-import os
-import shutil
-import time
-import inspect
-import traceback
-import copy
-
-import smtplib
-import socket
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-
-from functools import partial
-
-import numpy as np
-import torch
-
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
-
 class NoDaemonProcess(multiprocessing.Process):
     # make 'daemon' attribute always return False
     def _get_daemon(self):
@@ -93,8 +53,7 @@ def store_model(out_path):
     # TODO IMPLEMENT
     pass
 
-def eval_model(modelcfg, metrics, data_loader, data_path, seed, experiment_id, run_id, out_path, result_file, store = False, verbose = True):
-
+def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_path, result_file, store = False, verbose = True):
     lock.acquire()
     if cuda_devices_available is not None:
         cuda_device = cuda_devices_available.pop(0)
@@ -102,15 +61,7 @@ def eval_model(modelcfg, metrics, data_loader, data_path, seed, experiment_id, r
         cuda_device = None
     lock.release()
 
-    if len(data_path) == 2:
-        X_train,y_train = data_loader(data_path[0])
-        X_test,y_test = data_loader(data_path[1])
-    else:
-        X,y = data_loader(data_path)
-        kf = KFold(n_splits=no_runs, random_state=seed, shuffle=True)
-        train_idx, test_idx = kf.split(X)[run_id]
-        x_train, y_train = X[train_idx], Y[train_idx]
-        x_test, y_test = X[test_idx], Y[test_idx]
+    x_train, y_train, x_test,y_test = get_split(run_id = run_id)
 
     # Make a copy of the model config for all output-related stuff
     # This does not include any fields which hurt the output (e.g. x_test,y_test)
@@ -170,6 +121,21 @@ def eval_model(modelcfg, metrics, data_loader, data_path, seed, experiment_id, r
 
     return experiment_id, run_id, scores
     
+def get_train_test(basecfg, run_id):
+    if "train" in basecfg and "test" in basecfg:
+        x_train,y_train = basecfg["data_loader"](basecfg["train"])
+        x_test,y_test = basecfg["data_loader"](basecfg["test"])
+    else:
+        from sklearn.model_selection import KFold
+        X,y = basecfg["data_loader"](basecfg["data"])
+        kf = KFold(n_splits=basecfg.get("no_runs", 1), random_state=basecfg.get("seed", None), shuffle=True)
+        # TODO: This might be memory inefficient since list(..) materialises all splits, but only one is actually needed
+        train_idx, test_idx = list(kf.split(X))[run_id]
+        x_train, y_train = X[train_idx], y[train_idx]
+        x_test, y_test = X[test_idx], y[test_idx]
+    
+    return x_train,y_train,x_test,y_test
+
 def run_experiments(basecfg, models, cuda_devices = None, n_cores = 8):
     try:
         return_str = ""
@@ -191,33 +157,35 @@ def run_experiments(basecfg, models, cuda_devices = None, n_cores = 8):
         
         manager = Manager()
         shared_list = manager.list(cuda_devices)
-        print("Starting {} experiments on {} cores using {} GPUs".format(len(models), n_cores, 0 if not cuda_devices else len(set(cuda_devices]))))
+        no_gpus = 0 if not cuda_devices else len(set(cuda_devices))
+        print("Starting {} experiments on {} cores using {} GPUs".format(len(models), n_cores, no_gpus))
+        
+        no_runs = basecfg.get("no_runs", 1)
+        seed = basecfg.get("seed", None)
 
         experiments = []
-        no_runs = basecfg.get("no_runs", 1)
         for experiment_id, modelcfg in enumerate(models):
             for run_id in range(no_runs):
                 experiments.append(
-                    partial(
-                        eval_model
-                        modelcfg = modelcfg,
-                        metrics = basecfg["scoring"],
-                        data_loader = basecfg["data_loader"],
-                        data_path = basecfg["data_path"],
-                        seed = basecfg["seed"],
-                        experiment_id = experiment_id,
-                        run_id = run_id,
-                        out_path = basecfg["out_path"] + "/{}-{}".format(experiment_id,run_id),
-                        result_file = basecfg["out_path"] + "/results.jsonl",
-                        store = basecfg["store"],
-                        verbose = basecfg["verbose"]
+                    (
+                        modelcfg,
+                        basecfg["scoring"],
+                        partial(get_train_test,basecfg=basecfg),
+                        seed,
+                        experiment_id,
+                        run_id,
+                        basecfg.get("out_path", ".") + "/{}-{}".format(experiment_id,run_id),
+                        basecfg["out_path"] + "/results.jsonl",
+                        basecfg.get("store", False),
+                        basecfg.get("verbose", False)
                     )
                 )
 
         total_no_experiments = len(experiments)
         pool = MyPool(n_cores, initializer=init, initargs=(l,shared_list))
-        for total_id, experiment_id, run_id,results in enumerate(pool.imap(lambda x: x(), experiment_id)):
-            accuracy = results.get("accuracy_test", 0)
+        for total_id, eval_return in enumerate(pool.starmap(eval_model, experiments)):
+            experiment_id, run_id, results = eval_return
+            accuracy = results.get("accuracy_test", 0)*100.0
             fit_time = results.get("fit_time", 0)
             print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(total_id+1, total_no_experiments,experiment_id,run_id,accuracy,fit_time))
 
