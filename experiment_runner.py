@@ -68,6 +68,9 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
     readable_modelcfg["verbose"] = verbose
     readable_modelcfg["seed"] = seed
 
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+
     if verbose:
         print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
         print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
@@ -84,6 +87,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
     modelcfg["y_test"] = y_test
     modelcfg["verbose"] = verbose
     modelcfg["seed"] = seed
+    modelcfg["out_path"] = out_path
 
     model = model_ctor(**modelcfg)
 
