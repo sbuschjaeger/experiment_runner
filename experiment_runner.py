@@ -61,14 +61,22 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
         cuda_device = None
     lock.release()
 
-    x_train, y_train, x_test,y_test = get_split(run_id = run_id)
-
     # Make a copy of the model config for all output-related stuff
     # This does not include any fields which hurt the output (e.g. x_test,y_test)
     # but are usually part of the original modelcfg
     readable_modelcfg = copy.deepcopy(modelcfg)
     readable_modelcfg["verbose"] = verbose
     readable_modelcfg["seed"] = seed
+
+    if verbose:
+        print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
+        print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
+
+    x_train, y_train, x_test,y_test = get_split(run_id = run_id)
+
+    if verbose:
+        print("\t {}-{} LOADING DATA DONE".format(experiment_id, run_id))
+   
 
     # Prepare dict for model creation 
     model_ctor = modelcfg.pop("model")
@@ -78,9 +86,6 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
     modelcfg["seed"] = seed
 
     model = model_ctor(**modelcfg)
-
-    if verbose:
-        print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
 
     if cuda_device is not None:
         import torch
@@ -92,8 +97,15 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
             scores = {}
             scores["fit_time"] = fit_time
             for name, fun in metrics.items():
-                scores[name + "_train"] = fun(model, x_train, y_train)
-                scores[name + "_test"] = fun(model, x_test, y_test)
+                if x_train is not None and y_train is not None:
+                    if verbose:
+                        print("\t {}-{} SCORING {} ON TRAIN DATA".format(experiment_id, run_id, str(fun)))
+                    scores[name + "_train"] = fun(model, x_train, y_train)
+
+                if x_test is not None and y_test is not None:
+                    if verbose:
+                        print("\t {}-{} SCORING {} ON TEST DATA".format(experiment_id, run_id, str(fun)))
+                    scores[name + "_test"] = fun(model, x_test, y_test)
     else:
         start_time = time.time()
         model.fit(x_train, y_train)
@@ -102,8 +114,15 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
         scores = {}
         scores["fit_time"] = fit_time
         for name, fun in metrics.items():
-            scores[name + "_train"] = fun(model, x_train, y_train)
-            scores[name + "_test"] = fun(model, x_test, y_test)
+            if x_train is not None and y_train is not None:
+                if verbose:
+                    print("\t {}-{} SCORING {} ON TRAIN DATA".format(experiment_id, run_id, str(fun)))
+                scores[name + "_train"] = fun(model, x_train, y_train)
+
+            if x_test is not None and y_test is not None:
+                if verbose:
+                    print("\t {}-{} SCORING {} ON TEST DATA".format(experiment_id, run_id, str(fun)))
+                scores[name + "_test"] = fun(model, x_test, y_test)
     
     readable_modelcfg["scores"] = scores
     if store:
