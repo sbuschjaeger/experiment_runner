@@ -196,11 +196,15 @@ plot_metrics = [
     ("Crossentropy test loss", "n_estimators", ["decomposition_CROSSENTROPY_test","loss"]),
     ("Crossentropy test bias", "n_estimators", ["decomposition_CROSSENTROPY_test","bias"]),
     ("Crossentropy test variance", "n_estimators", ["decomposition_CROSSENTROPY_test","variance"]),
-    ("Crossentropy decomp. error", "n_estimators", ["decomposition_CROSSENTROPY_test","decomposition_error"]),
+    ("Crossentropy test decomp. error", "n_estimators", ["decomposition_CROSSENTROPY_test","decomposition_error"]),
     ("MSE test loss", "n_estimators", ["decomposition_MSE_test","loss"]),
     ("MSE test bias", "n_estimators", ["decomposition_MSE_test","bias"]),
     ("MSE test variance", "n_estimators", ["decomposition_MSE_test","variance"]),
-    ("MSE decomp. error", "n_estimators", ["decomposition_MSE_test","decomposition_error"])
+    ("MSE test decomp. error", "n_estimators", ["decomposition_MSE_test","decomposition_error"]),
+    ("Crossentropy train loss", "n_estimators", ["decomposition_CROSSENTROPY_train","loss"]),
+    ("Crossentropy train bias", "n_estimators", ["decomposition_CROSSENTROPY_train","bias"]),
+    ("Crossentropy train variance", "n_estimators", ["decomposition_CROSSENTROPY_train","variance"]),
+    ("Crossentropy train decomp. error", "n_estimators", ["decomposition_CROSSENTROPY_train","decomposition_error"]),
 ]
 
 fig = go.Figure(plot_selected(df, selected_configs, plot_metrics))
@@ -210,9 +214,9 @@ show_legend = st.sidebar.checkbox('Show legend entries', value=default_show_lege
 st.subheader("Comments")
 comments = st.text_area("Comments", value=default_comments)
 
-fig.update_layout(height=900, showlegend=show_legend, legend=dict(x=0,y=-0.2), legend_orientation="h")
+fig.update_layout(height=2000, showlegend=show_legend, legend=dict(x=0,y=-0.2), legend_orientation="h")
 
-st.plotly_chart(fig, height=1500 )
+st.plotly_chart(fig, height=2500)
 
 store_config = st.button("Store config")
 if store_config:

@@ -79,7 +79,9 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
 
     if verbose:
         print("\t {}-{} LOADING DATA DONE".format(experiment_id, run_id))
-   
+    
+    with open(out_path + "/config.json", 'w') as out:
+        out.write(json.dumps(replace_objects(readable_modelcfg)))
 
     # Prepare dict for model creation 
     model_ctor = modelcfg.pop("model")
@@ -129,11 +131,9 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_pa
                 scores[name + "_test"] = fun(model, x_test, y_test)
     
     readable_modelcfg["scores"] = scores
+
     if store:
         store_model(model, out_path)
-
-        with open(out_path + "/config.json", 'w') as out:
-            out.write(json.dumps(replace_objects(readable_modelcfg)))
 
     out_file = open(result_file,"a",1)
     lock.acquire()
