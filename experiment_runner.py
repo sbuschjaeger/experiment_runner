@@ -53,7 +53,20 @@ def store_model(out_path):
     # TODO IMPLEMENT
     pass
 
-def eval_model(modelcfg, metrics, get_split, seed, experiment_id, run_id, out_path, result_file, store = False, verbose = True):
+def eval_model(experiment_config):
+    # TODO MAKE THIS NICER 
+    # Unpack the whole config
+    modelcfg = experiment_config[0]
+    metrics = experiment_config[1]
+    get_split = experiment_config[2]
+    seed = experiment_config[3]
+    experiment_id = experiment_config[4]
+    run_id = experiment_config[5]
+    out_path = experiment_config[6]
+    result_file = experiment_config[7]
+    store = experiment_config[8]
+    verbose = experiment_config[9]
+
     lock.acquire()
     if cuda_devices_available is not None:
         cuda_device = cuda_devices_available.pop(0)
@@ -206,7 +219,8 @@ def run_experiments(basecfg, models, cuda_devices = None, n_cores = 8):
 
         total_no_experiments = len(experiments)
         pool = MyPool(n_cores, initializer=init, initargs=(l,shared_list))
-        for total_id, eval_return in enumerate(pool.starmap(eval_model, experiments)):
+        # Lets use imap and not starmap to keep track of the progress
+        for total_id, eval_return in enumerate(pool.imap_unordered(eval_model, experiments)):
             experiment_id, run_id, results = eval_return
             accuracy = results.get("accuracy_test", 0)*100.0
             fit_time = results.get("fit_time", 0)
