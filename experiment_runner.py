@@ -152,7 +152,7 @@ def eval_model(experiment_config):
     lock.acquire()
     if cuda_devices_available is not None:
         cuda_devices_available.append(cuda_device)
-    out_file.write(json.dumps(replace_objects(readable_modelcfg)) + "\n")
+    out_file.write(json.dumps(replace_objects(readable_modelcfg), sort_keys=True) + "\n")
     lock.release()
 
     return experiment_id, run_id, scores
