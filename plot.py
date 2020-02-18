@@ -25,7 +25,10 @@ def row_to_nice_name(row):
         nice_name += " with bootstrap sampling"
     if "l_reg" in row and not row["l_reg"] == "None":
         nice_name += " with l_reg = " + str(row["l_reg"])
-    
+    if "loss_function" in row and not row["loss_function"] == "None":
+        nice_name += " with " + str(row["loss_function"]) + " loss"
+    if "l_mode" in row and not row["l_mode"] == "None":
+        nice_name += " with " + str(row["l_mode"]) + " mode"
     # if "n_estimators" in row and not row["n_estimators"] == "None":
     # 	nice_name += str(row["n_estimators"]) +  " estimators "
 
@@ -191,20 +194,21 @@ for cfg_name,color in zip(all_configs, cycle(colors)):
 
 plot_metrics = [
     ("Test accuracy", "n_estimators", ["accuracy_test"]),
+    #("Test ROC", "n_estimators", ["roc_test"]),
     ("Average test accuracy", "n_estimators", ["avg-accuracy_test"]), 
     ("Fit time", "n_estimators", ["fit_time"]),
-    ("Crossentropy test loss", "n_estimators", ["decomposition_CROSSENTROPY_test","loss"]),
-    ("Crossentropy test bias", "n_estimators", ["decomposition_CROSSENTROPY_test","bias"]),
-    ("Crossentropy test variance", "n_estimators", ["decomposition_CROSSENTROPY_test","variance"]),
-    ("Crossentropy test decomp. error", "n_estimators", ["decomposition_CROSSENTROPY_test","decomposition_error"]),
+    ("Crossentropy test loss", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","loss"]),
+    ("Crossentropy test bias", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","bias"]),
+    ("Crossentropy test variance", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","variance"]),
+    ("Crossentropy test decomp. error", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","decomposition_error"]),
     ("MSE test loss", "n_estimators", ["decomposition_MSE_test","loss"]),
     ("MSE test bias", "n_estimators", ["decomposition_MSE_test","bias"]),
     ("MSE test variance", "n_estimators", ["decomposition_MSE_test","variance"]),
     ("MSE test decomp. error", "n_estimators", ["decomposition_MSE_test","decomposition_error"]),
-    ("Crossentropy train loss", "n_estimators", ["decomposition_CROSSENTROPY_train","loss"]),
-    ("Crossentropy train bias", "n_estimators", ["decomposition_CROSSENTROPY_train","bias"]),
-    ("Crossentropy train variance", "n_estimators", ["decomposition_CROSSENTROPY_train","variance"]),
-    ("Crossentropy train decomp. error", "n_estimators", ["decomposition_CROSSENTROPY_train","decomposition_error"]),
+    ("Gaussian Hinge loss", "n_estimators", ["decomposition_LUKAS_test","loss"]),
+    ("Gaussian Hinge bias", "n_estimators", ["decomposition_LUKAS_test","bias"]),
+    ("Gaussian Hinge variance", "n_estimators", ["decomposition_LUKAS_test","variance"]),
+    ("Gaussian Hinge decomp. error", "n_estimators", ["decomposition_LUKAS_test","decomposition_error"]),
 ]
 
 fig = go.Figure(plot_selected(df, selected_configs, plot_metrics))

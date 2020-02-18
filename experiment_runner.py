@@ -117,14 +117,14 @@ def eval_model(experiment_config):
             scores["fit_time"] = fit_time
             for name, fun in metrics.items():
                 if x_train is not None and y_train is not None:
-                    if verbose:
-                        print("\t {}-{} SCORING {} ON TRAIN DATA".format(experiment_id, run_id, str(fun)))
                     scores[name + "_train"] = fun(model, x_train, y_train)
+                    if verbose:
+                        print("\t {}-{} SCORING {} ON TRAIN DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_train"]))
 
                 if x_test is not None and y_test is not None:
-                    if verbose:
-                        print("\t {}-{} SCORING {} ON TEST DATA".format(experiment_id, run_id, str(fun)))
                     scores[name + "_test"] = fun(model, x_test, y_test)
+                    if verbose:
+                        print("\t {}-{} SCORING {} ON TEST DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_test"]))
     else:
         start_time = time.time()
         model.fit(x_train, y_train)
@@ -134,14 +134,14 @@ def eval_model(experiment_config):
         scores["fit_time"] = fit_time
         for name, fun in metrics.items():
             if x_train is not None and y_train is not None:
-                if verbose:
-                    print("\t {}-{} SCORING {} ON TRAIN DATA".format(experiment_id, run_id, str(fun)))
                 scores[name + "_train"] = fun(model, x_train, y_train)
+                if verbose:
+                    print("\t {}-{} SCORING {} ON TRAIN DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_train"]))
 
             if x_test is not None and y_test is not None:
-                if verbose:
-                    print("\t {}-{} SCORING {} ON TEST DATA".format(experiment_id, run_id, str(fun)))
                 scores[name + "_test"] = fun(model, x_test, y_test)
+                if verbose:
+                    print("\t {}-{} SCORING {} ON TEST DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_test"]))
     
     readable_modelcfg["scores"] = scores
 
