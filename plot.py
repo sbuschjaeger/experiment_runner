@@ -19,18 +19,13 @@ def str_to_latex(original):
     return original.replace("{","\\{").replace("}","\\}").replace("_", " ")
 
 def row_to_nice_name(row):
-    nice_name = row["model"] + " " + row["base_estimator"]
+    nice_name = row["model"] 
+    
+    if "base_estimator" in row and row["base_estimator"] != "None":
+        nice_name += "with " + row["base_estimator"]["model"]
 
-    if "bootstrap" in row and row["bootstrap"] != "None":
-        nice_name += " with bootstrap sampling"
-    if "l_reg" in row and not row["l_reg"] == "None":
-        nice_name += " with l_reg = " + str(row["l_reg"])
-    if "loss_function" in row and not row["loss_function"] == "None":
-        nice_name += " with " + str(row["loss_function"]) + " loss"
-    if "l_mode" in row and not row["l_mode"] == "None":
-        nice_name += " with " + str(row["l_mode"]) + " mode"
-    # if "n_estimators" in row and not row["n_estimators"] == "None":
-    # 	nice_name += str(row["n_estimators"]) +  " estimators "
+    if "sample_method" in row and not row["sample_method"] == "None":
+        nice_name += " with sample_method = " + str(row["sample_method"])
 
     return nice_name
 
@@ -126,8 +121,8 @@ def plot_selected(df, selected_configs, metrics):
     c = 1
     for m in metrics:
         fig.update_xaxes(title_text=m[1], row=r, col=c)
-        #fig.update_yaxes(title_text='_'.join(mi for mi in m), row=r, col=c)
-        fig.update_yaxes(title_text="", row=r, col=c)
+        #fig.update_yaxes(title_text='_'.join(mi for mi in m[2]), row=r, col=c)
+        #fig.update_yaxes(title_text="", row=r, col=c)
         c += 1
         if c > 2:
             c = 1
@@ -193,22 +188,12 @@ for cfg_name,color in zip(all_configs, cycle(colors)):
         selected_configs.append(cfg_name)
 
 plot_metrics = [
-    ("Test accuracy", "n_estimators", ["accuracy_test"]),
-    #("Test ROC", "n_estimators", ["roc_test"]),
-    ("Average test accuracy", "n_estimators", ["avg-accuracy_test"]), 
-    ("Fit time", "n_estimators", ["fit_time"]),
-    ("Crossentropy test loss", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","loss"]),
-    ("Crossentropy test bias", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","bias"]),
-    ("Crossentropy test variance", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","variance"]),
-    ("Crossentropy test decomp. error", "n_estimators", ["decomposition_CROSSENTROPY_WITH_SM_test","decomposition_error"]),
-    ("MSE test loss", "n_estimators", ["decomposition_MSE_test","loss"]),
-    ("MSE test bias", "n_estimators", ["decomposition_MSE_test","bias"]),
-    ("MSE test variance", "n_estimators", ["decomposition_MSE_test","variance"]),
-    ("MSE test decomp. error", "n_estimators", ["decomposition_MSE_test","decomposition_error"]),
-    ("Gaussian Hinge loss", "n_estimators", ["decomposition_LUKAS_test","loss"]),
-    ("Gaussian Hinge bias", "n_estimators", ["decomposition_LUKAS_test","bias"]),
-    ("Gaussian Hinge variance", "n_estimators", ["decomposition_LUKAS_test","variance"]),
-    ("Gaussian Hinge decomp. error", "n_estimators", ["decomposition_LUKAS_test","decomposition_error"]),
+    ("Test accuracy base", "n_estimators", ["Base accuracy_test"]),
+    ("Train accuracy base", "n_estimators", ["Base accuracy_train"]),
+    ("Test accuracy model", "n_estimators", ["Model accuracy_test"]),
+    ("Train accuracy model", "n_estimators", ["Model accuracy_train"]),
+    ("Test difference", "n_estimators", ["Difference_test"]),
+    ("Train difference", "n_estimators", ["Difference_train"])
 ]
 
 fig = go.Figure(plot_selected(df, selected_configs, plot_metrics))
@@ -218,9 +203,9 @@ show_legend = st.sidebar.checkbox('Show legend entries', value=default_show_lege
 st.subheader("Comments")
 comments = st.text_area("Comments", value=default_comments)
 
-fig.update_layout(height=2000, showlegend=show_legend, legend=dict(x=0,y=-0.2), legend_orientation="h")
+fig.update_layout(height=1200, showlegend=show_legend, legend=dict(x=0,y=-0.1), legend_orientation="h")
 
-st.plotly_chart(fig, height=2500)
+st.plotly_chart(fig, height=1200)
 
 store_config = st.button("Store config")
 if store_config:

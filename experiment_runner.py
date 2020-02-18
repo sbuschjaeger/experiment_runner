@@ -18,18 +18,39 @@ from functools import partial
 
 import numpy as np
 
-class NoDaemonProcess(multiprocessing.Process):
-    # make 'daemon' attribute always return False
-    def _get_daemon(self):
-        return False
-    def _set_daemon(self, value):
-        pass
-    daemon = property(_get_daemon, _set_daemon)
+# https://stackoverflow.com/questions/6974695/python-process-pool-non-daemonic
+# You have to scroll a bit to find this part.
+class NonDaemonPool(multiprocessing.pool.Pool):
+    def Process(self, *args, **kwds):
+        proc = super(NonDaemonPool, self).Process(*args, **kwds)
 
-# We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
-# because the latter is only a wrapper function, not a proper class.
-class MyPool(multiprocessing.pool.Pool):
-    Process = NoDaemonProcess
+        class NonDaemonProcess(proc.__class__):
+            """Monkey-patch process to ensure it is never daemonized"""
+
+            @property
+            def daemon(self):
+                return False
+
+            @daemon.setter
+            def daemon(self, val):
+                pass
+
+        proc.__class__ = NonDaemonProcess
+
+        return proc
+
+# class NoDaemonProcess(multiprocessing.Process):
+#     # make 'daemon' attribute always return False
+#     def _get_daemon(self):
+#         return False
+#     def _set_daemon(self, value):
+#         pass
+#     daemon = property(_get_daemon, _set_daemon)
+
+# # We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
+# # because the latter is only a wrapper function, not a proper class.
+# class MyPool(multiprocessing.pool.Pool):
+#     Process = NoDaemonProcess
 
 def replace_objects(d):
     d = d.copy()
@@ -61,7 +82,7 @@ def eval_model(experiment_config):
     get_split = experiment_config[2]
     seed = experiment_config[3]
     experiment_id = experiment_config[4]
-    run_id = experiment_config[5]
+    no_runs = experiment_config[5]
     out_path = experiment_config[6]
     result_file = experiment_config[7]
     store = experiment_config[8]
@@ -81,73 +102,76 @@ def eval_model(experiment_config):
     readable_modelcfg["verbose"] = verbose
     readable_modelcfg["seed"] = seed
 
+    scores = {}
+    scores["fit_time"] = []
+    for m in metrics.keys():
+        scores[m+ "_train"] = []
+        scores[m+ "_test"] = []
+
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
-    if verbose:
-        print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
-        print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
-
-    x_train, y_train, x_test,y_test = get_split(run_id = run_id)
-
-    if verbose:
-        print("\t {}-{} LOADING DATA DONE".format(experiment_id, run_id))
-    
     with open(out_path + "/config.json", 'w') as out:
         out.write(json.dumps(replace_objects(readable_modelcfg)))
 
-    # Prepare dict for model creation 
-    model_ctor = modelcfg.pop("model")
-    modelcfg["x_test"] = x_test
-    modelcfg["y_test"] = y_test
-    modelcfg["verbose"] = verbose
-    modelcfg["seed"] = seed
-    modelcfg["out_path"] = out_path
+    for run_id in range(no_runs):
+        if verbose:
+            print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
+            print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
 
-    model = model_ctor(**modelcfg)
+        x_train, y_train, x_test,y_test = get_split(run_id = run_id)
 
-    if cuda_device is not None:
-        import torch
-        with torch.cuda.device(cuda_device):
+        if verbose:
+            print("\t {}-{} LOADING DATA DONE".format(experiment_id, run_id))
+
+        # Prepare dict for model creation 
+        tmpcfg = copy.deepcopy(modelcfg)
+        model_ctor = tmpcfg.pop("model")
+        tmpcfg["x_test"] = x_test
+        tmpcfg["y_test"] = y_test
+        tmpcfg["verbose"] = verbose
+        tmpcfg["seed"] = seed
+        tmpcfg["out_path"] = out_path
+
+        expected = {}
+        for key in inspect.getfullargspec(model_ctor)[0]:
+            if key in tmpcfg:
+                expected[key] = tmpcfg[key]
+
+        model = model_ctor(**expected)
+
+        if cuda_device is not None:
+            import torch
+            with torch.cuda.device(cuda_device):
+                start_time = time.time()
+                model.fit(x_train, y_train)
+                fit_time = time.time() - start_time
+
+                scores["fit_time"].append(fit_time)
+                for name, fun in metrics.items():
+                    if x_train is not None and y_train is not None:
+                        scores[name + "_train"].append(fun(model, x_train, y_train))
+
+                    if x_test is not None and y_test is not None:
+                        scores[name + "_test"].append(fun(model, x_test, y_test))
+        else:
             start_time = time.time()
             model.fit(x_train, y_train)
             fit_time = time.time() - start_time
 
-            scores = {}
-            scores["fit_time"] = fit_time
+            scores["fit_time"].append(fit_time)
             for name, fun in metrics.items():
                 if x_train is not None and y_train is not None:
-                    scores[name + "_train"] = fun(model, x_train, y_train)
-                    if verbose:
-                        print("\t {}-{} SCORING {} ON TRAIN DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_train"]))
+                    scores[name + "_train"].append(fun(model, x_train, y_train))
 
                 if x_test is not None and y_test is not None:
-                    scores[name + "_test"] = fun(model, x_test, y_test)
-                    if verbose:
-                        print("\t {}-{} SCORING {} ON TEST DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_test"]))
-    else:
-        start_time = time.time()
-        model.fit(x_train, y_train)
-        fit_time = time.time() - start_time
+                    scores[name + "_test"].append(fun(model, x_test, y_test))
 
-        scores = {}
-        scores["fit_time"] = fit_time
-        for name, fun in metrics.items():
-            if x_train is not None and y_train is not None:
-                scores[name + "_train"] = fun(model, x_train, y_train)
-                if verbose:
-                    print("\t {}-{} SCORING {} ON TRAIN DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_train"]))
+        if store:
+            # TODO ADD RUN_ID to path
+            store_model(model, out_path)
 
-            if x_test is not None and y_test is not None:
-                scores[name + "_test"] = fun(model, x_test, y_test)
-                if verbose:
-                    print("\t {}-{} SCORING {} ON TEST DATA WAS {}".format(experiment_id, run_id, str(fun), scores[name + "_test"]))
-    
     readable_modelcfg["scores"] = scores
-
-    if store:
-        store_model(model, out_path)
-
     out_file = open(result_file,"a",1)
     lock.acquire()
     if cuda_devices_available is not None:
@@ -179,10 +203,10 @@ def run_experiments(basecfg, models, cuda_devices = None, n_cores = 8):
         def init(l, cd_avail):
             global lock
             global cuda_devices_available
-            
+
             lock = l
             cuda_devices_available = cd_avail
-
+            
         if not os.path.exists(basecfg["out_path"]):
             os.makedirs(basecfg["out_path"])
         else:
@@ -192,8 +216,12 @@ def run_experiments(basecfg, models, cuda_devices = None, n_cores = 8):
         l = multiprocessing.Lock()
         
         manager = Manager()
-        shared_list = manager.list(cuda_devices)
-        no_gpus = 0 if not cuda_devices else len(set(cuda_devices))
+        if cuda_devices is None or len(cuda_devices) == 0:
+            no_gpus = 0
+            shared_list = None
+        else:
+            shared_list = manager.list(cuda_devices)
+            no_gpus = len(set(cuda_devices))
         print("Starting {} experiments on {} cores using {} GPUs".format(len(models), n_cores, no_gpus))
         
         no_runs = basecfg.get("no_runs", 1)
@@ -201,30 +229,29 @@ def run_experiments(basecfg, models, cuda_devices = None, n_cores = 8):
 
         experiments = []
         for experiment_id, modelcfg in enumerate(models):
-            for run_id in range(no_runs):
-                experiments.append(
-                    (
-                        modelcfg,
-                        basecfg["scoring"],
-                        partial(get_train_test,basecfg=basecfg),
-                        seed,
-                        experiment_id,
-                        run_id,
-                        basecfg.get("out_path", ".") + "/{}-{}".format(experiment_id,run_id),
-                        basecfg["out_path"] + "/results.jsonl",
-                        basecfg.get("store", False),
-                        basecfg.get("verbose", False)
-                    )
+            experiments.append(
+                (
+                    modelcfg,
+                    basecfg["scoring"],
+                    partial(get_train_test,basecfg=basecfg),
+                    seed,
+                    experiment_id,
+                    no_runs,
+                    basecfg.get("out_path", ".") + "/{}".format(experiment_id),
+                    basecfg["out_path"] + "/results.jsonl",
+                    basecfg.get("store", False),
+                    basecfg.get("verbose", False)
                 )
+            )
 
         total_no_experiments = len(experiments)
-        pool = MyPool(n_cores, initializer=init, initargs=(l,shared_list))
+        pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
         for total_id, eval_return in enumerate(pool.imap_unordered(eval_model, experiments)):
             experiment_id, run_id, results = eval_return
             accuracy = results.get("accuracy_test", 0)*100.0
             fit_time = results.get("fit_time", 0)
-            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(total_id+1, total_no_experiments,experiment_id,run_id,accuracy,fit_time))
+            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(total_id+1, total_no_experiments,experiment_id,run_id,np.mean(accuracy),np.mean(fit_time)))
 
         pool.close()
         pool.join()
