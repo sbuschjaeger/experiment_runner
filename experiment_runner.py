@@ -249,9 +249,9 @@ def run_experiments(basecfg, models, cuda_devices = None, n_cores = 8):
         # Lets use imap and not starmap to keep track of the progress
         for total_id, eval_return in enumerate(pool.imap_unordered(eval_model, experiments)):
             experiment_id, run_id, results = eval_return
-            accuracy = results.get("accuracy_test", 0)*100.0
+            accuracy = results.get("accuracy_test", 0)
             fit_time = results.get("fit_time", 0)
-            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(total_id+1, total_no_experiments,experiment_id,run_id,np.mean(accuracy),np.mean(fit_time)))
+            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(total_id+1, total_no_experiments,experiment_id,run_id,np.mean(accuracy)*100.0,np.mean(fit_time)))
 
         pool.close()
         pool.join()

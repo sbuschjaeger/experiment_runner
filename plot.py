@@ -21,11 +21,21 @@ def str_to_latex(original):
 def row_to_nice_name(row):
     nice_name = row["model"] 
     
-    if "base_estimator" in row and row["base_estimator"] != "None":
-        nice_name += "with " + row["base_estimator"]["model"]
+    #if "base_estimator" in row and row["base_estimator"] != "None":
+    #    nice_name += " a. " + row["base_estimator"]["model"]
+
+    if "sample_from_estimator" in row and row["sample_from_estimator"] != "None":
+        nice_name += " from " + row["sample_from_estimator"]["model"]
 
     if "sample_method" in row and not row["sample_method"] == "None":
-        nice_name += " with sample_method = " + str(row["sample_method"])
+        nice_name += " type = " + str(row["sample_method"])
+
+    if "max_depth" in row and not row["max_depth"] == "None":
+        nice_name += " depth = " + str(row["max_depth"])
+
+    if "sample_from_estimator" in row and not row["sample_from_estimator"] == "None":
+        nice_name += " depth = " + str(row["sample_from_estimator"]["max_depth"])
+
 
     return nice_name
 
@@ -33,7 +43,7 @@ def row_to_nice_name(row):
 # 	dff = df[df["nice_name"] == key]
 # 	return dff.groupby(["K"])[col].mean(), dff.groupby(["K"])[col].std()
 
-def make_lines(df, method_name, color, show_legend, visible, metric):
+def make_lines(df, method_name, color, show_legend, visible, metric, show_std=False):
     m_name = metric[0]
     x_axis = metric[1]
     y_axis = metric[2]
@@ -63,7 +73,9 @@ def make_lines(df, method_name, color, show_legend, visible, metric):
             y_std.append(np.std(score_dict))
     
     l_name = str_to_latex(method_name)
-    
+    if not show_std:
+        y_std = []
+
     return go.Scatter(x=x, y=y_mean, line=dict(color=color), name=l_name, showlegend = show_legend,
                       visible = visible, 
                       error_y = dict(type="data", array=y_std, visible=not bool(np.any(np.isnan(y_std))))
@@ -86,7 +98,7 @@ def read_files(base_path):
 
     return dfs
 
-def plot_selected(df, selected_configs, metrics):
+def plot_selected(df, selected_configs, metrics, show_std=True):
     if len(metrics) == 1:
         cols = rows = 1
     else:
@@ -111,7 +123,7 @@ def plot_selected(df, selected_configs, metrics):
 
             for m in metrics:
                 first = (c == 1 and r == 1)
-                fig.append_trace(make_lines(df, method, color, first, visible, m),row=r,col=c)
+                fig.append_trace(make_lines(df, method, color, first, visible, m, show_std),row=r,col=c)
                 c += 1
                 if c > 2:
                     c = 1
@@ -150,11 +162,13 @@ if isfile(base_path + "/" + selected_df.split(".csv")[0] + "-settings.json"):
     default_comments = data["comments"] 
     default_show_raw = data["show_raw"]
     default_show_legend = data["show_legend"]
+    default_show_std = data["show_std"]
 else:
     default_configs = []
     default_comments = ""
     default_show_raw = False
     default_show_legend = False
+    default_show_std = True
 
 df = dfs[selected_df]
 
@@ -187,16 +201,17 @@ for cfg_name,color in zip(all_configs, cycle(colors)):
     if agree:
         selected_configs.append(cfg_name)
 
+show_std = st.sidebar.checkbox('Show error bars', value=default_show_std)
+
 plot_metrics = [
-    ("Test accuracy base", "n_estimators", ["Base accuracy_test"]),
-    ("Train accuracy base", "n_estimators", ["Base accuracy_train"]),
-    ("Test accuracy model", "n_estimators", ["Model accuracy_test"]),
-    ("Train accuracy model", "n_estimators", ["Model accuracy_train"]),
-    ("Test difference", "n_estimators", ["Difference_test"]),
-    ("Train difference", "n_estimators", ["Difference_train"])
+    ("Test accuracy", "n_estimators", ["accuracy_test"]),
+    ("Train accuracy", "n_estimators", ["accuracy_train"]),
+    ("Test ROC AUC", "n_estimators", ["ROC AUC_test"]),
+    ("Train ROC AUC", "n_estimators", ["ROC AUC_train"]),
+    ("Model Size", "n_estimators", ["size_test"]),
 ]
 
-fig = go.Figure(plot_selected(df, selected_configs, plot_metrics))
+fig = go.Figure(plot_selected(df, selected_configs, plot_metrics, show_std))
 
 show_legend = st.sidebar.checkbox('Show legend entries', value=default_show_legend)
 
@@ -214,6 +229,7 @@ if store_config:
     json_dict["comments"] = comments
     json_dict["show_raw"] = show_raw
     json_dict["show_legend"] = show_legend
+    json_dict["show_std"] = show_std
 
     with open(base_path + "/" + selected_df.split(".csv")[0] + "-settings.json" , 'w') as outfile:
         json.dump(json_dict, outfile)
