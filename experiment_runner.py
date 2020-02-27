@@ -74,6 +74,15 @@ def store_model(out_path):
     # TODO IMPLEMENT
     pass
 
+# getfullargspec does not handle inheritance correctly. 
+# Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
+def get_ctor_arguments(clazz):
+    args = ['self']
+    for C in clazz.__mro__:
+        if '__init__' in C.__dict__:
+            args += inspect.getfullargspec(C).args[1:]
+    return args
+
 def eval_model(experiment_config):
     # TODO MAKE THIS NICER 
     # Unpack the whole config
@@ -134,7 +143,7 @@ def eval_model(experiment_config):
         tmpcfg["out_path"] = out_path
 
         expected = {}
-        for key in inspect.getfullargspec(model_ctor)[0]:
+        for key in get_ctor_arguments(model_ctor):
             if key in tmpcfg:
                 expected[key] = tmpcfg[key]
 
@@ -183,8 +192,8 @@ def eval_model(experiment_config):
     
 def get_train_test(basecfg, run_id):
     if "train" in basecfg and "test" in basecfg:
-        x_train,y_train = basecfg["data_loader"](basecfg["train"])
-        x_test,y_test = basecfg["data_loader"](basecfg["test"])
+        x_train,y_train = basecfg["data_loader"](*basecfg["train"])
+        x_test,y_test = basecfg["data_loader"](*basecfg["test"])
     else:
         from sklearn.model_selection import KFold
         X,y = basecfg["data_loader"](basecfg["data"])
