@@ -192,8 +192,8 @@ def eval_model(experiment_config):
     
 def get_train_test(basecfg, run_id):
     if "train" in basecfg and "test" in basecfg:
-        x_train,y_train = basecfg["data_loader"](*basecfg["train"])
-        x_test,y_test = basecfg["data_loader"](*basecfg["test"])
+        x_train,y_train = basecfg["data_loader"](basecfg["train"])
+        x_test,y_test = basecfg["data_loader"](basecfg["test"])
     else:
         from sklearn.model_selection import KFold
         X,y = basecfg["data_loader"](basecfg["data"])
