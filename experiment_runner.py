@@ -58,7 +58,11 @@ def replace_objects(d):
         if isinstance(v, dict):
             d[k] = replace_objects(v)
         elif isinstance(v, partial):
-            d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args])
+            # print(v)
+            # print(v.args)
+            # print(v.keywords)
+            # asdf
+            d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
         elif callable(v) or inspect.isclass(v):
             try:
                 d[k] = v.__name__
@@ -136,8 +140,9 @@ def eval_model(experiment_config):
         # Prepare dict for model creation 
         tmpcfg = copy.deepcopy(modelcfg)
         model_ctor = tmpcfg.pop("model")
-        tmpcfg["x_test"] = x_test
-        tmpcfg["y_test"] = y_test
+        if "x_test" not in tmpcfg and "y_test" not in tmpcfg:
+            tmpcfg["x_test"] = x_test
+            tmpcfg["y_test"] = y_test
         tmpcfg["verbose"] = verbose
         tmpcfg["seed"] = seed
         tmpcfg["out_path"] = out_path
@@ -155,9 +160,9 @@ def eval_model(experiment_config):
                 start_time = time.time()
                 model.fit(x_train, y_train)
                 fit_time = time.time() - start_time
-
                 scores["fit_time"].append(fit_time)
                 for name, fun in metrics.items():
+
                     if x_train is not None and y_train is not None:
                         scores[name + "_train"].append(fun(model, x_train, y_train))
 
@@ -177,6 +182,7 @@ def eval_model(experiment_config):
                     scores[name + "_test"].append(fun(model, x_test, y_test))
 
         if store:
+            print("STORING")
             # TODO ADD RUN_ID to path
             store_model(model, out_path)
 
@@ -188,6 +194,7 @@ def eval_model(experiment_config):
     out_file.write(json.dumps(replace_objects(readable_modelcfg), sort_keys=True) + "\n")
     lock.release()
 
+    print("DONE")
     return experiment_id, run_id, scores
     
 def get_train_test(basecfg, run_id):
