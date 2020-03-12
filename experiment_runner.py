@@ -160,12 +160,12 @@ def eval_model(experiment_config):
                 start_time = time.time()
                 model.fit(x_train, y_train)
                 fit_time = time.time() - start_time
+                model.eval()
                 scores["fit_time"].append(fit_time)
                 for name, fun in metrics.items():
-
                     if x_train is not None and y_train is not None:
                         scores[name + "_train"].append(fun(model, x_train, y_train))
-
+                    
                     if x_test is not None and y_test is not None:
                         scores[name + "_test"].append(fun(model, x_test, y_test))
         else:
