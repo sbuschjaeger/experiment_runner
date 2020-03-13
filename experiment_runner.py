@@ -19,77 +19,44 @@ from functools import partial
 
 import numpy as np
 
-# https://stackoverflow.com/questions/6974695/python-process-pool-non-daemonic
-# You have to scroll a bit to find this part.
-class NonDaemonPool(multiprocessing.pool.Pool):
-    def Process(self, *args, **kwds):
-        proc = super(NonDaemonPool, self).Process(*args, **kwds)
 
-        class NonDaemonProcess(proc.__class__):
-            """Monkey-patch process to ensure it is never daemonized"""
-
-            @property
-            def daemon(self):
-                return False
-
-            @daemon.setter
-            def daemon(self, val):
-                pass
-
-        proc.__class__ = NonDaemonProcess
-
-        return proc
-
-# class NoDaemonProcess(multiprocessing.Process):
-#     # make 'daemon' attribute always return False
-#     def _get_daemon(self):
-#         return False
-#     def _set_daemon(self, value):
-#         pass
-#     daemon = property(_get_daemon, _set_daemon)
-
-# # We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
-# # because the latter is only a wrapper function, not a proper class.
-# class MyPool(multiprocessing.pool.Pool):
-#     Process = NoDaemonProcess
-
-def replace_objects(d):
-    d = d.copy()
-    for k, v in d.items():
-        if isinstance(v, dict):
-            d[k] = replace_objects(v)
-        elif isinstance(v, partial):
-            # print(v)
-            # print(v.args)
-            # print(v.keywords)
-            # asdf
-            d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
-        elif callable(v) or inspect.isclass(v):
-            try:
-                d[k] = v.__name__
-            except Exception as e:
-                d[k] = str(v) #.__name__
-    return d
-
-def cfg_to_str(cfg):
-    cfg = replace_objects(cfg.copy())
-    return json.dumps(cfg, indent=4)
-
-def store_model(out_path):
-    # TODO IMPLEMENT
-    pass
-
-# getfullargspec does not handle inheritance correctly. 
-# Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
-def get_ctor_arguments(clazz):
-    args = ['self']
-    for C in clazz.__mro__:
-        if '__init__' in C.__dict__:
-            args += inspect.getfullargspec(C).args[1:]
-    return args
 
 @ray.remote(num_gpus=1)
 def eval_model(experiment_config):
+    def replace_objects(d):
+        d = d.copy()
+        for k, v in d.items():
+            if isinstance(v, dict):
+                d[k] = replace_objects(v)
+            elif isinstance(v, partial):
+                # print(v)
+                # print(v.args)
+                # print(v.keywords)
+                # asdf
+                d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
+            elif callable(v) or inspect.isclass(v):
+                try:
+                    d[k] = v.__name__
+                except Exception as e:
+                    d[k] = str(v) #.__name__
+        return d
+
+    def cfg_to_str(cfg):
+        cfg = replace_objects(cfg.copy())
+        return json.dumps(cfg, indent=4)
+
+    def store_model(out_path):
+        # TODO IMPLEMENT
+        pass
+
+    # getfullargspec does not handle inheritance correctly. 
+    # Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
+    def get_ctor_arguments(clazz):
+        args = ['self']
+        for C in clazz.__mro__:
+            if '__init__' in C.__dict__:
+                args += inspect.getfullargspec(C).args[1:]
+        return args
     try:
         # TODO MAKE THIS NICER 
         # Unpack the whole config
@@ -126,7 +93,7 @@ def eval_model(experiment_config):
 
         for run_id in range(no_runs):
             if verbose:
-                print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
+                # print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
                 print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
 
             x_train, y_train, x_test,y_test = get_split(run_id = run_id)
@@ -150,10 +117,11 @@ def eval_model(experiment_config):
                     expected[key] = tmpcfg[key]
 
             model = model_ctor(**expected)
-
-            if cuda_device is not None:
+            from torch.cuda import is_available, device_count
+            if is_available() and device_count() > 0:
+            # if cuda_device is not None:
                 import torch
-                with torch.cuda.device(cuda_device):
+                with torch.cuda.device(torch.device('cuda:0')):
                     start_time = time.time()
                     model.fit(x_train, y_train)
                     fit_time = time.time() - start_time
@@ -179,9 +147,10 @@ def eval_model(experiment_config):
                         scores[name + "_test"].append(fun(model, x_test, y_test))
 
             if store:
+                raise NotImplementedError("Storing not Supported with Ray")
                 print("STORING")
                 # TODO ADD RUN_ID to path
-                store_model(model, out_path)
+                # store_model(model, out_path)
 
         readable_modelcfg["scores"] = scores
         # out_file = open(result_file,"a",1) # HACK AROUND THIS
@@ -192,25 +161,26 @@ def eval_model(experiment_config):
 
         print("DONE")
         return experiment_id, run_id, scores, out_file_content
-    except expression as identifier:
+    except Exception as identifier:
+        print(identifier)
         return None
     
-def get_train_test(basecfg, run_id):
-    if "train" in basecfg and "test" in basecfg:
-        x_train,y_train = basecfg["data_loader"](basecfg["train"])
-        x_test,y_test = basecfg["data_loader"](basecfg["test"])
-    else:
-        from sklearn.model_selection import KFold
-        X,y = basecfg["data_loader"](basecfg["data"])
-        kf = KFold(n_splits=basecfg.get("no_runs", 1), random_state=basecfg.get("seed", None), shuffle=True)
-        # TODO: This might be memory inefficient since list(..) materialises all splits, but only one is actually needed
-        train_idx, test_idx = list(kf.split(X))[run_id]
-        x_train, y_train = X[train_idx], y[train_idx]
-        x_test, y_test = X[test_idx], y[test_idx]
-    
-    return x_train,y_train,x_test,y_test
 
 def run_experiments(basecfg, models):
+    def get_train_test(basecfg, run_id):
+        if "train" in basecfg and "test" in basecfg:
+            x_train,y_train = basecfg["data_loader"](basecfg["train"])
+            x_test,y_test = basecfg["data_loader"](basecfg["test"])
+        else:
+            from sklearn.model_selection import KFold
+            X,y = basecfg["data_loader"](basecfg["data"])
+            kf = KFold(n_splits=basecfg.get("no_runs", 1), random_state=basecfg.get("seed", None), shuffle=True)
+            # TODO: This might be memory inefficient since list(..) materialises all splits, but only one is actually needed
+            train_idx, test_idx = list(kf.split(X))[run_id]
+            x_train, y_train = X[train_idx], y[train_idx]
+            x_test, y_test = X[test_idx], y[test_idx]
+        
+        return x_train,y_train,x_test,y_test
     try:
         return_str = ""
         results = []
@@ -236,7 +206,7 @@ def run_experiments(basecfg, models):
         # else:
         #     shared_list = manager.list(cuda_devices)
         #     no_gpus = len(set(cuda_devices))
-        print("Starting {} experiments on {} cores using {} GPUs".format(len(models), n_cores, no_gpus))
+        print("Starting {} experiments on Ray".format(len(models)))
         
         no_runs = basecfg.get("no_runs", 1)
         seed = basecfg.get("seed", None)
@@ -247,7 +217,7 @@ def run_experiments(basecfg, models):
                 (
                     modelcfg,
                     basecfg["scoring"],
-                    partial(get_train_test,basecfg=basecfg),
+                    partial(get_train_test, basecfg=basecfg),
                     seed,
                     experiment_id,
                     no_runs,
@@ -268,6 +238,9 @@ def run_experiments(basecfg, models):
         while futures:
             result, futures = ray.wait(futures)
             eval_return = ray.get(result[0])
+            if eval_return is None:
+                print("NONE!")
+                continue
             # for total_id, eval_return in enumerate(pool.imap_unordered(eval_model, experiments)):
             experiment_id, run_id, results, out_file_content = eval_return
             with open(result_file, "a", 1) as out_file:# HACK AROUND THIS
