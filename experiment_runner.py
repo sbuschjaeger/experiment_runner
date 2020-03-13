@@ -22,7 +22,7 @@ import numpy as np
 
 
 
-@ray.remote(num_gpus=1)
+@ray.remote()
 def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, result_file, store, verbose):
     def replace_objects(d):
         d = d.copy()
@@ -118,34 +118,17 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                     expected[key] = tmpcfg[key]
 
             model = model_ctor(**expected)
-            from torch.cuda import is_available, device_count
-            if is_available() and device_count() > 0:
-            # if cuda_device is not None:
-                import torch
-                with torch.cuda.device(torch.device('cuda:0')):
-                    start_time = time.time()
-                    model.fit(x_train, y_train)
-                    fit_time = time.time() - start_time
-                    scores["fit_time"].append(fit_time)
-                    for name, fun in metrics.items():
+            start_time = time.time()
+            model.fit(x_train, y_train)
+            fit_time = time.time() - start_time
 
-                        if x_train is not None and y_train is not None:
-                            scores[name + "_train"].append(fun(model, x_train, y_train))
+            scores["fit_time"].append(fit_time)
+            for name, fun in metrics.items():
+                if x_train is not None and y_train is not None:
+                    scores[name + "_train"].append(fun(model, x_train, y_train))
 
-                        if x_test is not None and y_test is not None:
-                            scores[name + "_test"].append(fun(model, x_test, y_test))
-            else:
-                start_time = time.time()
-                model.fit(x_train, y_train)
-                fit_time = time.time() - start_time
-
-                scores["fit_time"].append(fit_time)
-                for name, fun in metrics.items():
-                    if x_train is not None and y_train is not None:
-                        scores[name + "_train"].append(fun(model, x_train, y_train))
-
-                    if x_test is not None and y_test is not None:
-                        scores[name + "_test"].append(fun(model, x_test, y_test))
+                if x_test is not None and y_test is not None:
+                    scores[name + "_test"].append(fun(model, x_test, y_test))
 
             if store:
                 # raise NotImplementedError("Storing not Supported with Ray")
@@ -187,12 +170,6 @@ def run_experiments(basecfg, models):
         results = []
         if "out_path" in basecfg:
             basecfg["out_path"] = os.path.abspath(basecfg["out_path"])
-        # def init(l, cd_avail):
-        #     global lock
-        #     global cuda_devices_available
-
-        #     lock = l
-        #     cuda_devices_available = cd_avail
             
         if not os.path.exists(basecfg["out_path"]):
             os.makedirs(basecfg["out_path"])
@@ -200,42 +177,17 @@ def run_experiments(basecfg, models):
             if os.path.isfile(basecfg["out_path"] + "/results.jsonl"):
                 os.unlink(basecfg["out_path"] + "/results.jsonl")
 
-        # l = multiprocessing.Lock()
-        
-        # manager = Manager()
-        # if cuda_devices is None or len(cuda_devices) == 0:
-        #     no_gpus = 0
-        #     shared_list = None
-        # else:
-        #     shared_list = manager.list(cuda_devices)
-        #     no_gpus = len(set(cuda_devices))
         print("Starting {} experiments on Ray".format(len(models)))
         
         no_runs = basecfg.get("no_runs", 1)
         seed = basecfg.get("seed", None)
         
-        # experiments = []
-        # for experiment_id, modelcfg in enumerate(models):
-        #     experiments.append(
-        #         (
-        #             modelcfg,
-        #             basecfg["scoring"],
-        #             partial(get_train_test, basecfg=basecfg),
-        #             seed,
-        #             experiment_id,
-        #             no_runs,
-        #             basecfg.get("out_path", ".") + "/{}".format(experiment_id),
-        #             basecfg["out_path"] + "/results.jsonl",
-        #             basecfg.get("store", False),
-        #             basecfg.get("verbose", False)
-        #         )
-        #     )
-
         
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
-        ray.init(address="ls8ws013:6379")
-        # ray.init()
+        # ray.init(address="ls8ws013:6379")
+        ray.init(address=basecfg.get("ray_head", None))
+
         futures = [eval_model.options(
                 num_cpus=basecfg.get("num_cpus", 1),
                 num_gpus=basecfg.get("num_gpus", 1)).remote(
