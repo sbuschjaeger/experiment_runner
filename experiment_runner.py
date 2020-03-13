@@ -10,6 +10,7 @@ import inspect
 import traceback
 import copy
 
+
 import smtplib
 import socket
 from email.mime.multipart import MIMEMultipart
@@ -93,7 +94,7 @@ def eval_model(experiment_config):
 
         for run_id in range(no_runs):
             if verbose:
-                # print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
+                print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
                 print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
 
             x_train, y_train, x_test,y_test = get_split(run_id = run_id)
@@ -147,10 +148,10 @@ def eval_model(experiment_config):
                         scores[name + "_test"].append(fun(model, x_test, y_test))
 
             if store:
-                raise NotImplementedError("Storing not Supported with Ray")
+                # raise NotImplementedError("Storing not Supported with Ray")
                 print("STORING")
                 # TODO ADD RUN_ID to path
-                # store_model(model, out_path)
+                store_model(model, out_path)
 
         readable_modelcfg["scores"] = scores
         # out_file = open(result_file,"a",1) # HACK AROUND THIS
