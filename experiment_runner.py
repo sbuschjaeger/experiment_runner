@@ -23,7 +23,7 @@ import numpy as np
 
 
 @ray.remote(num_gpus=1)
-def eval_model(experiment_config):
+def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, result_file, store, verbose):
     def replace_objects(d):
         d = d.copy()
         for k, v in d.items():
@@ -61,16 +61,16 @@ def eval_model(experiment_config):
     try:
         # TODO MAKE THIS NICER 
         # Unpack the whole config
-        modelcfg = experiment_config[0]
-        metrics = experiment_config[1]
-        get_split = experiment_config[2]
-        seed = experiment_config[3]
-        experiment_id = experiment_config[4]
-        no_runs = experiment_config[5]
-        out_path = experiment_config[6]
-        result_file = experiment_config[7]
-        store = experiment_config[8]
-        verbose = experiment_config[9]
+        # modelcfg = experiment_config[0]
+        # metrics = experiment_config[1]
+        # get_split = experiment_config[2]
+        # seed = experiment_config[3]
+        # experiment_id = experiment_config[4]
+        # no_runs = experiment_config[5]
+        # out_path = experiment_config[6]
+        # result_file = experiment_config[7]
+        # store = experiment_config[8]
+        # verbose = experiment_config[9]
 
 
         # Make a copy of the model config for all output-related stuff
@@ -214,29 +214,44 @@ def run_experiments(basecfg, models):
         no_runs = basecfg.get("no_runs", 1)
         seed = basecfg.get("seed", None)
         
-        experiments = []
-        for experiment_id, modelcfg in enumerate(models):
-            experiments.append(
-                (
-                    modelcfg,
-                    basecfg["scoring"],
-                    partial(get_train_test, basecfg=basecfg),
-                    seed,
-                    experiment_id,
-                    no_runs,
-                    basecfg.get("out_path", ".") + "/{}".format(experiment_id),
-                    basecfg["out_path"] + "/results.jsonl",
-                    basecfg.get("store", False),
-                    basecfg.get("verbose", False)
-                )
-            )
+        # experiments = []
+        # for experiment_id, modelcfg in enumerate(models):
+        #     experiments.append(
+        #         (
+        #             modelcfg,
+        #             basecfg["scoring"],
+        #             partial(get_train_test, basecfg=basecfg),
+        #             seed,
+        #             experiment_id,
+        #             no_runs,
+        #             basecfg.get("out_path", ".") + "/{}".format(experiment_id),
+        #             basecfg["out_path"] + "/results.jsonl",
+        #             basecfg.get("store", False),
+        #             basecfg.get("verbose", False)
+        #         )
+        #     )
 
-        total_no_experiments = len(experiments)
+        
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
         ray.init(address="ls8ws013:6379")
         # ray.init()
-        futures = [eval_model.remote(exp) for exp in experiments]
+        futures = [eval_model.options(
+                num_cpus=basecfg.get("num_cpus", 1),
+                num_gpus=basecfg.get("num_gpus", 1)).remote(
+                modelcfg,
+                basecfg["scoring"],
+                partial(get_train_test, basecfg=basecfg),
+                seed,
+                experiment_id,
+                no_runs,
+                basecfg.get("out_path", ".") + "/{}".format(experiment_id),
+                basecfg["out_path"] + "/results.jsonl",
+                basecfg.get("store", False),
+                basecfg.get("verbose", False)
+            ) for experiment_id, modelcfg in enumerate(models)
+        ]
+        total_no_experiments = len(futures)
         total_id = 0
         while futures:
             result, futures = ray.wait(futures)
