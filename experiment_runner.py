@@ -184,6 +184,8 @@ def run_experiments(basecfg, models):
     try:
         return_str = ""
         results = []
+        if "out_path" in basecfg:
+            basecfg["out_path"] = os.path.abspath(basecfg["out_path"])
         # def init(l, cd_avail):
         #     global lock
         #     global cuda_devices_available
@@ -243,7 +245,7 @@ def run_experiments(basecfg, models):
                 continue
             # for total_id, eval_return in enumerate(pool.imap_unordered(eval_model, experiments)):
             experiment_id, run_id, results, out_file_content = eval_return
-            with open(result_file, "a", 1) as out_file:# HACK AROUND THIS
+            with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:# HACK AROUND THIS
                 out_file.write(out_file_content)
 
             accuracy = results.get("accuracy_test", 0)
