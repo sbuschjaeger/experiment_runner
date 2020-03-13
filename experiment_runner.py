@@ -231,8 +231,8 @@ def run_experiments(basecfg, models):
         total_no_experiments = len(experiments)
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
-        # ray.init(address="ls8ws013:6379")
-        ray.init()
+        ray.init(address="ls8ws013:6379")
+        # ray.init()
         futures = [eval_model.remote(exp) for exp in experiments]
         total_id = 0
         while futures:
