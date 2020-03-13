@@ -1,3 +1,4 @@
+import ray
 import multiprocessing
 import multiprocessing.pool
 from multiprocessing import Manager
@@ -87,6 +88,7 @@ def get_ctor_arguments(clazz):
             args += inspect.getfullargspec(C).args[1:]
     return args
 
+@ray.remote(num_gpus=1)
 def eval_model(experiment_config):
     # TODO MAKE THIS NICER 
     # Unpack the whole config
