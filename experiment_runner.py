@@ -22,7 +22,7 @@ import numpy as np
 
 
 
-@ray.remote()
+@ray.remote
 def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, result_file, store, verbose):
     def replace_objects(d):
         d = d.copy()
