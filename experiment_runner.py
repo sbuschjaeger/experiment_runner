@@ -79,6 +79,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         readable_modelcfg = copy.deepcopy(modelcfg)
         readable_modelcfg["verbose"] = verbose
         readable_modelcfg["seed"] = seed
+        readable_modelcfg["experiment_id"] = experiment_id
 
         scores = {}
         scores["fit_time"] = []
