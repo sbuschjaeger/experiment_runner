@@ -140,8 +140,15 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
             for key in get_ctor_arguments(model_ctor):
                 if key in tmpcfg:
                     expected[key] = tmpcfg[key]
-
+                
             model = model_ctor(**expected)
+            if pipeline and "pipeline" not in expected:
+                # Model cannot handle the pipeline internally, 
+                # so we put the model at the end of the pipeline and 
+                # train the whole pipeline instead of the model.
+                pipeline.steps[-1] = (model.__class__.__name__, model)
+                model = pipeline
+
             start_time = time.time()
             model.fit(x_train, y_train)
             fit_time = time.time() - start_time
