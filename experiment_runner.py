@@ -83,6 +83,9 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         # Make a copy of the model config for all output-related stuff
         # This does not include any fields which hurt the output (e.g. x_test,y_test)
         # but are usually part of the original modelcfg
+        if not verbose:
+            import warnings
+            warnings.filterwarnings('ignore')
         readable_modelcfg = copy.deepcopy(modelcfg)
         readable_modelcfg["verbose"] = verbose
         readable_modelcfg["seed"] = seed
