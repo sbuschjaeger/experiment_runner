@@ -1,29 +1,20 @@
-import ray
-import multiprocessing
-import multiprocessing.pool
-from multiprocessing import Manager
-import json
-import os
-import shutil
-import time
-import inspect
-import traceback
 import copy
-
-
-import smtplib
-import socket
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
 from functools import partial
+import os
+import inspect
+import json
+import smtplib
+import socket
+import time
+import traceback
 
 import numpy as np
-
-
+import ray
 
 @ray.remote
-def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, result_file, store, verbose):
+def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, store, verbose):
     def replace_objects(d):
         d = d.copy()
         for k, v in d.items():
@@ -32,15 +23,11 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
             elif isinstance(v, list):
                 d[k] = [replace_objects({"key":vv})["key"] for vv in v]
             elif isinstance(v, partial):
-                # print(v)
-                # print(v.args)
-                # print(v.keywords)
-                # asdf
                 d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
             elif callable(v) or inspect.isclass(v):
                 try:
                     d[k] = v.__name__
-                except Exception as e:
+                except:
                     d[k] = str(v) #.__name__
             elif isinstance(v, object) and v.__class__.__module__ != 'builtins':
                 # print(type(v))
@@ -57,7 +44,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         # TODO IMPLEMENT
         pass
 
-    # getfullargspec does not handle inheritance correctly. 
+    # getfullargspec does not handle inheritance correctly.
     # Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
     def get_ctor_arguments(clazz):
         args = ['self']
@@ -66,20 +53,6 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                 args += inspect.getfullargspec(C).args[1:]
         return args
     try:
-        # TODO MAKE THIS NICER 
-        # Unpack the whole config
-        # modelcfg = experiment_config[0]
-        # metrics = experiment_config[1]
-        # get_split = experiment_config[2]
-        # seed = experiment_config[3]
-        # experiment_id = experiment_config[4]
-        # no_runs = experiment_config[5]
-        # out_path = experiment_config[6]
-        # result_file = experiment_config[7]
-        # store = experiment_config[8]
-        # verbose = experiment_config[9]
-
-
         # Make a copy of the model config for all output-related stuff
         # This does not include any fields which hurt the output (e.g. x_test,y_test)
         # but are usually part of the original modelcfg
@@ -105,21 +78,28 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
 
         for run_id in range(no_runs):
             if verbose:
-                print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(experiment_id,run_id,cfg_to_str(readable_modelcfg)))
+                print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(
+                    experiment_id,
+                    run_id,
+                    cfg_to_str(readable_modelcfg)))
                 print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
 
-            x_train, y_train, x_test,y_test = get_split(run_id = run_id)
+            x_train, y_train, x_test, y_test = get_split(run_id=run_id)
 
             if verbose:
                 print("\t {}-{} LOADING DATA DONE".format(experiment_id, run_id))
 
-            # Prepare dict for model creation 
+            # Prepare dict for model creation
             tmpcfg = copy.deepcopy(modelcfg)
             model_ctor = tmpcfg.pop("model")
 
-            print("WARNING: Reloading ", model_ctor, "from Hard Disk. If it changed you fucked up your experiment now.")
-            from importlib import reload, import_module # HACK
-            module = reload(import_module(model_ctor.__module__)) # Make sure to use the most up-to-date code.
+            print("WARNING: Reloading ", model_ctor, "from Hard Disk. " + \
+                  "If you changed the code since starting this experiment, " + \
+                  "then you fucked up your experiment now.")
+            # HACK: This should actually happen only once per Ray-Slave
+            from importlib import reload, import_module
+            # Make sure to use the most up-to-date code.
+            module = reload(import_module(model_ctor.__module__))
             model_ctor = module.__getattribute__(model_ctor.__name__)
             if "x_test" not in tmpcfg and "y_test" not in tmpcfg:
                 tmpcfg["x_test"] = x_test
@@ -140,11 +120,11 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
             for key in get_ctor_arguments(model_ctor):
                 if key in tmpcfg:
                     expected[key] = tmpcfg[key]
-                
+
             model = model_ctor(**expected)
             if pipeline and "pipeline" not in expected:
-                # Model cannot handle the pipeline internally, 
-                # so we put the model at the end of the pipeline and 
+                # Model cannot handle the pipeline internally,
+                # so we put the model at the end of the pipeline and
                 # train the whole pipeline instead of the model.
                 pipeline.steps[-1] = (model.__class__.__name__, model)
                 model = pipeline
@@ -163,7 +143,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
 
             if store:
                 raise NotImplementedError("Storing not Supported with Ray")
-                print("STORING")
+                # print("STORING")
                 # TODO ADD RUN_ID to path
                 # store_model(model, out_path)
 
@@ -176,29 +156,31 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
     except Exception as identifier:
         print(identifier)
         return None
-    
 
 def run_experiments(basecfg, models, **kwargs):
     def get_train_test(basecfg, run_id):
         if "train" in basecfg and "test" in basecfg:
-            x_train,y_train = basecfg["data_loader"](basecfg["train"])
-            x_test,y_test = basecfg["data_loader"](basecfg["test"])
+            x_train, y_train = basecfg["data_loader"](basecfg["train"])
+            x_test, y_test = basecfg["data_loader"](basecfg["test"])
         else:
             from sklearn.model_selection import KFold
-            X,y = basecfg["data_loader"](basecfg["data"])
-            kf = KFold(n_splits=basecfg.get("no_runs", 1), random_state=basecfg.get("seed", None), shuffle=True)
-            # TODO: This might be memory inefficient since list(..) materialises all splits, but only one is actually needed
-            train_idx, test_idx = list(kf.split(X))[run_id]
+            X, y = basecfg["data_loader"](basecfg["data"])
+            xval = KFold(n_splits=basecfg.get("no_runs", 1),
+                       random_state=basecfg.get("seed", None),
+                       shuffle=True)
+            # TODO: This might be memory inefficient since list(..)
+            # materialises all splits, but only one is actually needed
+            train_idx, test_idx = list(xval.split(X))[run_id]
             x_train, y_train = X[train_idx], y[train_idx]
             x_test, y_test = X[test_idx], y[test_idx]
-        
-        return x_train,y_train,x_test,y_test
+        return x_train, y_train, x_test, y_test
+
     try:
         return_str = ""
         results = []
         if "out_path" in basecfg:
             basecfg["out_path"] = os.path.abspath(basecfg["out_path"])
-            
+
         if not os.path.exists(basecfg["out_path"]):
             os.makedirs(basecfg["out_path"])
         else:
@@ -206,11 +188,10 @@ def run_experiments(basecfg, models, **kwargs):
                 os.unlink(basecfg["out_path"] + "/results.jsonl")
 
         print("Starting {} experiments on Ray".format(len(models)))
-        
+
         no_runs = basecfg.get("no_runs", 1)
         seed = basecfg.get("seed", None)
-        
-        
+
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
@@ -226,7 +207,6 @@ def run_experiments(basecfg, models, **kwargs):
                 experiment_id,
                 no_runs,
                 basecfg.get("out_path", ".") + "/{}".format(experiment_id),
-                basecfg["out_path"] + "/results.jsonl",
                 basecfg.get("store", False),
                 basecfg.get("verbose", False)
             ) for experiment_id, modelcfg in enumerate(models)
@@ -246,7 +226,9 @@ def run_experiments(basecfg, models, **kwargs):
 
             accuracy = results.get("accuracy_test", 0)
             fit_time = results.get("fit_time", 0)
-            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(total_id+1, total_no_experiments,experiment_id,run_id,np.mean(accuracy)*100.0,np.mean(fit_time)))
+            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(
+                total_id+1, total_no_experiments, experiment_id, run_id,
+                np.mean(accuracy) * 100.0, np.mean(fit_time)))
             total_id += 1
     except Exception as e:
         return_str = str(e) + "\n"
@@ -256,12 +238,12 @@ def run_experiments(basecfg, models, **kwargs):
         ray.shutdown()
         if "mail" in basecfg:
             if "smtp_server" in basecfg:
-                server = smtplib.SMTP(host=basecfg["smtp_server"],port=25)
+                server = smtplib.SMTP(host=basecfg["smtp_server"], port=25)
             else:
-                server = smtplib.SMTP(host='postamt.cs.uni-dortmund.de',port=25)
+                server = smtplib.SMTP(host='postamt.cs.uni-dortmund.de', port=25)
 
             msg = MIMEMultipart()
-            msg["From"] = socket.gethostname()  + "@tu-dortmund.de"
+            msg["From"] = socket.gethostname() + "@tu-dortmund.de"
             msg["To"] = basecfg["mail"]
             if "name" in basecfg:
                 msg["Subject"] = "{} finished on {}".format(basecfg["name"], socket.gethostname())
@@ -270,4 +252,3 @@ def run_experiments(basecfg, models, **kwargs):
 
             msg.attach(MIMEText(return_str, "plain"))
             server.sendmail(msg['From'], msg['To'], msg.as_string())
-        
