@@ -253,6 +253,7 @@ def run_experiments(basecfg, models):
         return_str += traceback.format_exc() + "\n"
     finally:
         print(return_str)
+        ray.shutdown()
         if "mail" in basecfg:
             if "smtp_server" in basecfg:
                 server = smtplib.SMTP(host=basecfg["smtp_server"],port=25)
