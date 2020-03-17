@@ -29,6 +29,8 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         for k, v in d.items():
             if isinstance(v, dict):
                 d[k] = replace_objects(v)
+            elif isinstance(v, list):
+                d[k] = [replace_objects({"key":vv})["key"] for vv in v]
             elif isinstance(v, partial):
                 # print(v)
                 # print(v.args)
@@ -40,6 +42,11 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                     d[k] = v.__name__
                 except Exception as e:
                     d[k] = str(v) #.__name__
+            elif isinstance(v, object) and v.__class__.__module__ != 'builtins':
+                # print(type(v))
+                d[k] = str(v)
+            else:
+                d[k] = v
         return d
 
     def cfg_to_str(cfg):
@@ -106,12 +113,25 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
             # Prepare dict for model creation 
             tmpcfg = copy.deepcopy(modelcfg)
             model_ctor = tmpcfg.pop("model")
+
+            print("WARNING: Reloading ", model_ctor, "from Hard Disk. If it changed you fucked up your experiment now.")
+            from importlib import reload, import_module # HACK
+            module = reload(import_module(model_ctor.__module__)) # Make sure to use the most up-to-date code.
+            model_ctor = module.__getattribute__(model_ctor.__name__)
             if "x_test" not in tmpcfg and "y_test" not in tmpcfg:
                 tmpcfg["x_test"] = x_test
                 tmpcfg["y_test"] = y_test
             tmpcfg["verbose"] = verbose
             tmpcfg["seed"] = seed
             tmpcfg["out_path"] = out_path
+
+            pipeline = modelcfg.get("pipeline", None)
+            if pipeline:
+                from sklearn.base import clone
+                from sklearn.pipeline import make_pipeline
+                # print(pipeline)
+                pipeline = make_pipeline(*[clone(p) for p in pipeline], "passthrough")
+            tmpcfg["pipeline"] = pipeline
 
             expected = {}
             for key in get_ctor_arguments(model_ctor):
@@ -132,17 +152,14 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                     scores[name + "_test"].append(fun(model, x_test, y_test))
 
             if store:
-                # raise NotImplementedError("Storing not Supported with Ray")
+                raise NotImplementedError("Storing not Supported with Ray")
                 print("STORING")
                 # TODO ADD RUN_ID to path
-                store_model(model, out_path)
+                # store_model(model, out_path)
 
         readable_modelcfg["scores"] = scores
-        # out_file = open(result_file,"a",1) # HACK AROUND THIS
-        # lock.acquire()
+
         out_file_content = json.dumps(replace_objects(readable_modelcfg), sort_keys=True) + "\n"
-        # out_file.write(out_file_content)
-        # lock.release()
 
         print("DONE")
         return experiment_id, run_id, scores, out_file_content
