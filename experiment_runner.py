@@ -178,7 +178,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         return None
     
 
-def run_experiments(basecfg, models):
+def run_experiments(basecfg, models, **kwargs):
     def get_train_test(basecfg, run_id):
         if "train" in basecfg and "test" in basecfg:
             x_train,y_train = basecfg["data_loader"](basecfg["train"])
