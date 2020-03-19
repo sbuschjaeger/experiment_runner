@@ -36,6 +36,14 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                 d[k] = v
         return d
 
+    def stacktrace(exception):
+        """convenience method for java-style stack trace error messages"""
+        import sys
+        import traceback
+        print("\n".join(traceback.format_exception(None, exception, exception.__traceback__)),
+            file=sys.stderr,
+            flush=True)
+
     def cfg_to_str(cfg):
         cfg = replace_objects(cfg.copy())
         return json.dumps(cfg, indent=4)
@@ -154,7 +162,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         print("DONE")
         return experiment_id, run_id, scores, out_file_content
     except Exception as identifier:
-        print(identifier)
+        stacktrace(identifier)
         return None
 
 def run_experiments(basecfg, models, **kwargs):
