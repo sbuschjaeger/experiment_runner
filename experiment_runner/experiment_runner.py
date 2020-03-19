@@ -9,6 +9,7 @@ import smtplib
 import socket
 import time
 import traceback
+import joblib
 
 import numpy as np
 import ray
@@ -40,9 +41,9 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         cfg = replace_objects(cfg.copy())
         return json.dumps(cfg, indent=4)
 
-    def store_model(out_path):
-        # TODO IMPLEMENT
-        pass
+    # def store_model(out_path):
+    #     # TODO IMPLEMENT
+    #     pass
 
     # getfullargspec does not handle inheritance correctly.
     # Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
@@ -142,10 +143,28 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                     scores[name + "_test"].append(fun(model, x_test, y_test))
 
             if store:
-                raise NotImplementedError("Storing not Supported with Ray")
-                # print("STORING")
-                # TODO ADD RUN_ID to path
-                # store_model(model, out_path)
+                # raise NotImplementedError("Storing not Supported with Ray")
+                if verbose:
+                    print("STORING")
+                
+                if hasattr(model, "store"):
+                    print("FOUND CUSTOM MODEL")
+                    # Custom model
+                    # TODO Remove dim options here
+                    model.store("{}".format(out_path), dim=x_train[0].shape, name="model") 
+                else:
+                    if isinstance(model, pipeline) and hasattr(model.steps[-1], "store"):
+                        print("FOUND PIPELINE WITH CUSTOM MODEL")
+                        # SKLEARN PIPELINE With custom model
+                        custom_model = model.steps.pop()
+                        joblib.dump(model, "{}model_pipeline.pkl".format(out_path))
+
+                        # TODO Remove dim options here
+                        custom_model.store("{}".format(out_path), dim=x_train[0].shape, name="model")
+                    else:
+                        print("FOUND PIPELINE")
+                        joblib.dump(model, "{}/model.pkl".format(out_path))
+                        # SKLEARN MODEL OR PIPELINE
 
         readable_modelcfg["scores"] = scores
 
@@ -154,7 +173,8 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         print("DONE")
         return experiment_id, run_id, scores, out_file_content
     except Exception as identifier:
-        print(identifier)
+        raise identifier
+        # print(identifier)
         return None
 
 def run_experiments(basecfg, models, **kwargs):
