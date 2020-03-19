@@ -41,7 +41,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         import sys
         import traceback
         print("\n".join(traceback.format_exception(None, exception, exception.__traceback__)),
-            file=sys.stderr,
+            #file=sys.stderr,
             flush=True)
 
     def cfg_to_str(cfg):
