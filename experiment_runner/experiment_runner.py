@@ -15,7 +15,7 @@ import numpy as np
 import ray
 
 @ray.remote
-def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, store, verbose, debug):
+def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, store, verbose):
     def replace_objects(d):
         d = d.copy()
         for k, v in d.items():
@@ -36,6 +36,14 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
             else:
                 d[k] = v
         return d
+
+    def stacktrace(exception):
+        """convenience method for java-style stack trace error messages"""
+        import sys
+        import traceback
+        print("\n".join(traceback.format_exception(None, exception, exception.__traceback__)),
+            #file=sys.stderr,
+            flush=True)
 
     def cfg_to_str(cfg):
         cfg = replace_objects(cfg.copy())
@@ -173,11 +181,8 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         print("DONE")
         return experiment_id, run_id, scores, out_file_content
     except Exception as identifier:
-        if debug:
-            raise identifier
-        else:
-            print(identifier)
-            return None
+        stacktrace(identifier)
+        return None
 
 def run_experiments(basecfg, models, **kwargs):
     def get_train_test(basecfg, run_id):
@@ -230,8 +235,7 @@ def run_experiments(basecfg, models, **kwargs):
                 no_runs,
                 basecfg.get("out_path", ".") + "/{}".format(experiment_id),
                 basecfg.get("store", False),
-                basecfg.get("verbose", False),
-                basecfg.get("debug", False)
+                basecfg.get("verbose", False)
             ) for experiment_id, modelcfg in enumerate(models)
         ]
         total_no_experiments = len(futures)
