@@ -15,7 +15,7 @@ import numpy as np
 import ray
 
 @ray.remote
-def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, store, verbose):
+def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, store, verbose, debug):
     def replace_objects(d):
         d = d.copy()
         for k, v in d.items():
@@ -173,9 +173,11 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         print("DONE")
         return experiment_id, run_id, scores, out_file_content
     except Exception as identifier:
-        raise identifier
-        # print(identifier)
-        return None
+        if debug:
+            raise identifier
+        else:
+            print(identifier)
+            return None
 
 def run_experiments(basecfg, models, **kwargs):
     def get_train_test(basecfg, run_id):
@@ -228,7 +230,8 @@ def run_experiments(basecfg, models, **kwargs):
                 no_runs,
                 basecfg.get("out_path", ".") + "/{}".format(experiment_id),
                 basecfg.get("store", False),
-                basecfg.get("verbose", False)
+                basecfg.get("verbose", False),
+                basecfg.get("debug", False)
             ) for experiment_id, modelcfg in enumerate(models)
         ]
         total_no_experiments = len(futures)
