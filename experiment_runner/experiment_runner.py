@@ -171,14 +171,14 @@ def run_experiments(basecfg, models, **kwargs):
             x_train, y_train = basecfg["data_loader"](basecfg["train"])
             x_test, y_test = basecfg["data_loader"](basecfg["test"])
         else:
-            from sklearn.model_selection import KFold
+            from sklearn.model_selection import StratifiedKFold
             X, y = basecfg["data_loader"](basecfg["data"])
-            xval = KFold(n_splits=basecfg.get("no_runs", 1),
+            xval = StratifiedKFold(n_splits=basecfg.get("no_runs", 1),
                        random_state=basecfg.get("seed", None),
                        shuffle=True)
             # TODO: This might be memory inefficient since list(..)
             # materialises all splits, but only one is actually needed
-            train_idx, test_idx = list(xval.split(X))[run_id]
+            train_idx, test_idx = list(xval.split(X, y))[run_id]
             x_train, y_train = X[train_idx], y[train_idx]
             x_test, y_test = X[test_idx], y[test_idx]
         return x_train, y_train, x_test, y_test
@@ -204,19 +204,24 @@ def run_experiments(basecfg, models, **kwargs):
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
         ray.init(address=basecfg.get("ray_head", None))
+        
+        for model_cfg in models:
+            for cfg in basecfg:
+                if cfg not in model_cfg:
+                    model_cfg[cfg] = basecfg[cfg]
 
         futures = [eval_model.options(
-                num_cpus=basecfg.get("num_cpus", 1),
-                num_gpus=basecfg.get("num_gpus", 1)).remote(
+                num_cpus=modelcfg.get("num_cpus", 1),
+                num_gpus=modelcfg.get("num_gpus", 1)).remote(
                 modelcfg,
-                basecfg["scoring"],
-                partial(get_train_test, basecfg=basecfg),
+                modelcfg["scoring"],
+                partial(get_train_test, basecfg=modelcfg),
                 seed,
                 experiment_id,
                 no_runs,
-                basecfg.get("out_path", ".") + "/{}".format(experiment_id),
-                basecfg.get("store", False),
-                basecfg.get("verbose", False)
+                modelcfg.get("out_path", ".") + "/{}".format(experiment_id),
+                modelcfg.get("store", False),
+                modelcfg.get("verbose", False)
             ) for experiment_id, modelcfg in enumerate(models)
         ]
         total_no_experiments = len(futures)
