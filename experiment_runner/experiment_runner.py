@@ -22,6 +22,8 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                 d[k] = replace_objects(v)
             elif isinstance(v, list):
                 d[k] = [replace_objects({"key":vv})["key"] for vv in v]
+            elif isinstance(v, np.generic):
+                d[k] = v.item()
             elif isinstance(v, partial):
                 d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
             elif callable(v) or inspect.isclass(v):
