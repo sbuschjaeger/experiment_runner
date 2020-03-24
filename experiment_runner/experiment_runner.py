@@ -184,6 +184,10 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         return experiment_id, run_id, scores, out_file_content
     except Exception as identifier:
         stacktrace(identifier)
+        # Ray is somtimes a little bit to quick in killing our processes if something bad happens 
+        # In this case we do not see the stack trace which is super annyoing. Therefore, we sleep a
+        # second to wait until the print has been processed / flushed
+        time.sleep(1.0)
         return None
 
 def run_experiments(basecfg, models, **kwargs):
@@ -224,7 +228,8 @@ def run_experiments(basecfg, models, **kwargs):
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
-        ray.init(address=basecfg.get("ray_head", None))
+        ray.init(address=basecfg.get("ray_head", None), local_mode=basecfg.get("ray_local_mode", False))
+        # ray.init(address=basecfg.get("ray_head", None), local_mode=False)
         
         for model_cfg in models:
             for cfg in basecfg:
