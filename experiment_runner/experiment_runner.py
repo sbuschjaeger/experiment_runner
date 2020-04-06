@@ -175,7 +175,10 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                         print("FOUND PIPELINE")
                         joblib.dump(model, "{}/model.pkl".format(out_path))
                         # SKLEARN MODEL OR PIPELINE
-
+        for score in list(scores.keys()):
+            if len(scores[score]) > 1:
+                scores["mean_"+ score] = np.array(scores[score]).mean()
+                scores["std_"+ score] = np.array(scores[score]).std()
         readable_modelcfg["scores"] = scores
 
         out_file_content = json.dumps(replace_objects(readable_modelcfg), sort_keys=True) + "\n"
