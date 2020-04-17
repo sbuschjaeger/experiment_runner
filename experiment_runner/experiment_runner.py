@@ -85,7 +85,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
             os.makedirs(out_path)
 
         with open(out_path + "/config.json", 'w') as out:
-            out.write(json.dumps(replace_objects(readable_modelcfg)))
+            out.write(json.dumps(replace_objects(readable_modelcfg), indent=4))
 
         for run_id in range(no_runs):
             if verbose:
