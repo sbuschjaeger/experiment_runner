@@ -222,9 +222,9 @@ def run_experiments(basecfg, models, **kwargs):
 
             accuracy = results.get("accuracy_test", 0)
             fit_time = results.get("fit_time", 0)
-            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} in {} s".format(
+            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} +- {} in {} s".format(
                 total_id+1, total_no_experiments, experiment_id, run_id,
-                np.mean(accuracy) * 100.0, np.mean(fit_time)))
+                np.mean(accuracy) * 100.0, np.var(accuracy)*(100.0**2) , np.mean(fit_time)))
             total_id += 1
     except Exception as e:
         return_str = str(e) + "\n"
