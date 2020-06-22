@@ -76,4 +76,5 @@ def get_ctor_arguments(clazz):
     for C in clazz.__mro__:
         if '__init__' in C.__dict__:
             args += inspect.getfullargspec(C).args[1:]
+            args += inspect.getfullargspec(C).kwonlyargs
     return args

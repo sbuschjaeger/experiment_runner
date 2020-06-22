@@ -71,7 +71,9 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
                 tmpcfg["y_test"] = y_test
             tmpcfg["verbose"] = verbose
             tmpcfg["seed"] = seed
-            tmpcfg["out_path"] = out_path
+            tmpcfg["out_path"] = out_path + "/" + str(run_id)
+            if not os.path.exists(tmpcfg["out_path"]):
+                os.makedirs(tmpcfg["out_path"])
 
             pre_pipeline = modelcfg.get("pre_pipeline", None)
             if pre_pipeline:
@@ -85,7 +87,7 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
             for key in get_ctor_arguments(model_ctor):
                 if key in tmpcfg:
                     expected[key] = tmpcfg[key]
-
+            
             model = model_ctor(**expected)
             if pre_pipeline and "pipeline" not in expected:
                 # Model cannot handle the pipeline internally,
