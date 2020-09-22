@@ -14,8 +14,6 @@ import ray
 
 from experiment_runner.Utils import stacktrace, cfg_to_str, get_ctor_arguments, replace_objects
 
-# Force every worker to reload their import path by terminating each worker after each run,  see https://github.com/ray-project/ray/issues/6449
-@ray.remote(max_calls=1)
 def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose):
     try:
         # Make a copy of the model config for all output-related stuff
@@ -149,6 +147,11 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         time.sleep(1.0)
         return None
 
+# Force every worker to reload their import path by terminating each worker after each run,  see https://github.com/ray-project/ray/issues/6449
+@ray.remote(max_calls=1)
+def ray_eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose):
+    return eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose)
+
 def run_experiments(basecfg, models, **kwargs):
     def get_train_test(basecfg, run_id):
         if "train" in basecfg and "test" in basecfg:
@@ -187,18 +190,32 @@ def run_experiments(basecfg, models, **kwargs):
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
-        ray.init(address=basecfg.get("ray_head", None), local_mode=basecfg.get("ray_local_mode", False))
-        # ray.init(address=basecfg.get("ray_head", None), local_mode=False)
+        run_locally = basecfg.get("local_mode", False)
+        if not run_locally:
+            ray.init(address=basecfg.get("ray_head", None))
         
         for model_cfg in models:
             for cfg in basecfg:
                 if cfg not in model_cfg:
                     model_cfg[cfg] = basecfg[cfg]
 
-        futures = [eval_model.options( 
-                    num_cpus=modelcfg.get("num_cpus", 1),
-                    num_gpus=modelcfg.get("num_gpus", 1)
-                ).remote(
+        if not run_locally:
+            futures = [ray_eval_model.options( 
+                        num_cpus=modelcfg.get("num_cpus", 1),
+                        num_gpus=modelcfg.get("num_gpus", 1)
+                    ).remote(
+                        modelcfg,
+                        modelcfg["scoring"],
+                        partial(get_train_test, basecfg=modelcfg),
+                        seed,
+                        experiment_id,
+                        no_runs,
+                        modelcfg.get("out_path", ".") + "/{}".format(experiment_id),
+                        modelcfg.get("verbose", False)
+                    ) for experiment_id, modelcfg in enumerate(models)
+            ]
+        else:
+            futures = [partial(eval_model,
                     modelcfg,
                     modelcfg["scoring"],
                     partial(get_train_test, basecfg=modelcfg),
@@ -212,8 +229,12 @@ def run_experiments(basecfg, models, **kwargs):
         total_no_experiments = len(futures)
         total_id = 0
         while futures:
-            result, futures = ray.wait(futures)
-            eval_return = ray.get(result[0])
+            if not run_locally:
+                result, futures = ray.wait(futures)
+                eval_return = ray.get(result[0])
+            else:
+                f = futures.pop(0)
+                eval_return = f()
             if eval_return is None:
                 print("NONE!")
                 continue
