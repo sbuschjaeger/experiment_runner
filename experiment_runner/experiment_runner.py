@@ -182,7 +182,6 @@ def run_experiments(basecfg, models, **kwargs):
             if os.path.isfile(basecfg["out_path"] + "/results.jsonl"):
                 os.unlink(basecfg["out_path"] + "/results.jsonl")
 
-        print("Starting {} experiments on Ray".format(len(models)))
 
         no_runs = basecfg.get("no_runs", 1)
         seed = basecfg.get("seed", None)
@@ -191,6 +190,8 @@ def run_experiments(basecfg, models, **kwargs):
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
         run_locally = basecfg.get("local_mode", False)
+        print("Starting {} experiments on {}".format(len(models), "localhost" if run_locally else "ray"))
+        
         if not run_locally:
             ray.init(address=basecfg.get("ray_head", None))
         
