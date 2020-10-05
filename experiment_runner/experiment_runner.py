@@ -148,7 +148,8 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         return None
 
 # Force every worker to reload their import path by terminating each worker after each run,  see https://github.com/ray-project/ray/issues/6449
-@ray.remote(max_calls=1)
+#(max_calls=1)
+@ray.remote 
 def ray_eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose):
     return eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose)
 
@@ -193,7 +194,7 @@ def run_experiments(basecfg, models, **kwargs):
         print("Starting {} experiments on {}".format(len(models), "localhost" if run_locally else "ray"))
         
         if not run_locally:
-            ray.init(address=basecfg.get("ray_head", None))
+            ray.init(address=basecfg.get("ray_head", None), _redis_password=basecfg.get("redis_password", None))
         
         for model_cfg in models:
             for cfg in basecfg:
@@ -215,6 +216,7 @@ def run_experiments(basecfg, models, **kwargs):
                         modelcfg.get("verbose", False)
                     ) for experiment_id, modelcfg in enumerate(models)
             ]
+            print("SUBMITTED JOBS, NOW WAITING")
         else:
             futures = [partial(eval_model,
                     modelcfg,
@@ -226,7 +228,7 @@ def run_experiments(basecfg, models, **kwargs):
                     modelcfg.get("out_path", ".") + "/{}".format(experiment_id),
                     modelcfg.get("verbose", False)
                 ) for experiment_id, modelcfg in enumerate(models)
-        ]
+            ]
         total_no_experiments = len(futures)
         total_id = 0
         while futures:
