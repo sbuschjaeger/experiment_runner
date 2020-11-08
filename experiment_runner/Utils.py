@@ -3,36 +3,36 @@ import os
 from functools import partial
 
 import numpy as np
-import cloudpickle
 import json
 
 from sklearn.pipeline import Pipeline 
 
-# TODO Change function header to be nicer
-def store_model(previous_output, model, out_path = None, x_train = None, y_train = None, x_test = None, y_test = None):
-    print("IN STORE MODEl")
-    if hasattr(model, "store"):
-        print("FOUND CUSTOM MODEL")
-        # Custom model
-        # TODO Remove dim options here
-        model.store("{}".format(out_path), dim=x_train[0].shape, name="model") 
-    else:
-        if isinstance(model, Pipeline) and hasattr(model.steps[-1], "store"):
-            print("FOUND PIPELINE WITH CUSTOM MODEL")
-            # SKLEARN PIPELINE With custom model
-            custom_model = model.steps.pop()
-            with open(os.path.join(out_path, "model_pipeline.pkl"), "wb") as f:
-                cloudpickle.dump(model, f)
+# import cloudpickle
+# # TODO Change function header to be nicer
+# def store_model(previous_output, model, out_path = None, x_train = None, y_train = None, x_test = None, y_test = None):
+#     print("IN STORE MODEl")
+#     if hasattr(model, "store"):
+#         print("FOUND CUSTOM MODEL")
+#         # Custom model
+#         # TODO Remove dim options here
+#         model.store("{}".format(out_path), dim=x_train[0].shape, name="model") 
+#     else:
+#         if isinstance(model, Pipeline) and hasattr(model.steps[-1], "store"):
+#             print("FOUND PIPELINE WITH CUSTOM MODEL")
+#             # SKLEARN PIPELINE With custom model
+#             custom_model = model.steps.pop()
+#             with open(os.path.join(out_path, "model_pipeline.pkl"), "wb") as f:
+#                 cloudpickle.dump(model, f)
 
-            # TODO Remove dim options here
-            custom_model.store("{}".format(out_path), dim=x_train[0].shape, name="model")
-        else:
-            print("FOUND PIPELINE")
-            print("ADWDW")
-            with open(os.path.join(out_path, "model.pkl"), "wb") as f:
-                print("PICKLE WITH CLOUDPICKLE")
-                cloudpickle.dump(model, f)
-            # SKLEARN MODEL OR PIPELINE
+#             # TODO Remove dim options here
+#             custom_model.store("{}".format(out_path), dim=x_train[0].shape, name="model")
+#         else:
+#             print("FOUND PIPELINE")
+#             print("ADWDW")
+#             with open(os.path.join(out_path, "model.pkl"), "wb") as f:
+#                 print("PICKLE WITH CLOUDPICKLE")
+#                 cloudpickle.dump(model, f)
+#             # SKLEARN MODEL OR PIPELINE
 
 def replace_objects(d):
     d = d.copy()
