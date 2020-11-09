@@ -109,6 +109,7 @@ def run_experiments(basecfg, cfgs, **kwargs):
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
         backend = basecfg.get("backend", "local")
+        verbose = basecfg.get("verbose", True)
         print("Starting {} experiments via {} backend".format(len(cfgs), backend))
         
         if backend == "ray":
@@ -150,12 +151,12 @@ def run_experiments(basecfg, cfgs, **kwargs):
                     out_file.write(out_file_content)
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
-            for eval_return in tqdm(pool.imap(eval_fit, configurations), total = len(configurations)):
+            for eval_return in tqdm(pool.imap(eval_fit, configurations), total = len(configurations),disable = not verbose):
                 experiment_id, results, out_file_content = eval_return
                 with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
                     out_file.write(out_file_content)
         else:
-            for f in tqdm(configurations):
+            for f in tqdm(configurations, disable = not verbose):
                 eval_return = eval_fit(f)
                 experiment_id, results, out_file_content = eval_return
                 with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
