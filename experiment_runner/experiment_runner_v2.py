@@ -150,7 +150,7 @@ def run_experiments(basecfg, cfgs, **kwargs):
                     out_file.write(out_file_content)
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
-            for eval_return in tqdm(pool.imap(eval_fit, configurations), total = len(configurations)):
+            for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total = len(configurations)):
                 experiment_id, results, out_file_content = eval_return
                 with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
                     out_file.write(out_file_content)
