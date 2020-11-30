@@ -11,7 +11,8 @@ import traceback
 from multiprocessing import Pool
 from tqdm import tqdm
 import numpy as np
-#import ray
+import ray
+import random
 
 from experiment_runner.Utils import stacktrace, cfg_to_str, get_ctor_arguments, replace_objects
 
@@ -88,9 +89,9 @@ def eval_fit(config):
         time.sleep(1.0)
         return None
 
-# @ray.remote 
-# def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
-#     return eval_fit( (pre, fit, post, out_path, experiment_id, cfg) )
+@ray.remote(max_calls=1)
+def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
+    return eval_fit( (pre, fit, post, out_path, experiment_id, cfg) )
 
 def run_experiments(basecfg, cfgs, **kwargs):
     try:
@@ -113,12 +114,13 @@ def run_experiments(basecfg, cfgs, **kwargs):
         print("Starting {} experiments via {} backend".format(len(cfgs), backend))
         
         if backend == "ray":
-            ray.init(address=basecfg.get("ray_head", None), _redis_password=basecfg.get("redis_password", None))
+            ray.init(address=basecfg.get("address", "auto"), _redis_password=basecfg.get("redis_password", None))
         
         if backend == "ray":
             configurations = [ray_eval_fit.options( 
                         num_cpus=basecfg.get("num_cpus", 1),
-                        num_gpus=basecfg.get("num_gpus", 1)
+                        num_gpus=basecfg.get("num_gpus", 0),
+                        memory = basecfg.get("max_memory", 1000 * 1024 * 1024) # 1 GB
                     ).remote(
                         basecfg.get("pre",None),
                         basecfg.get("fit", None),
@@ -142,13 +144,18 @@ def run_experiments(basecfg, cfgs, **kwargs):
             ]
 
         if backend == "ray":
-            # TODO ADD TQDM HERE
-            while configurations:
-                result, futures = ray.wait(configurations)
-                eval_return = ray.get(result[0])
-                experiment_id, results, out_file_content = eval_return
+            # https://github.com/ray-project/ray/issues/8164
+            def to_iterator(configs):
+                while configs:
+                    result, configs = ray.wait(configs)
+                    yield ray.get(result[0])
+
+            random.shuffle(configurations)
+            for result in tqdm(to_iterator(configurations), total=len(configurations)):
+                experiment_id, results, out_file_content = result 
                 with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
                     out_file.write(out_file_content)
+
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
             for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total = len(configurations), disable = not verbose):
