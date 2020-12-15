@@ -13,6 +13,7 @@ from tqdm import tqdm
 import numpy as np
 import ray
 import random
+import copy
 
 from experiment_runner.Utils import stacktrace, cfg_to_str, get_ctor_arguments, replace_objects
 
