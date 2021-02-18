@@ -17,6 +17,49 @@ import copy
 
 from experiment_runner.Utils import stacktrace, cfg_to_str, get_ctor_arguments, replace_objects
 
+class Variation:
+    def __init__(self, list_of_choices):
+        self.choices = list_of_choices
+
+    def get(self):
+        return np.random.choice(self.choices)
+
+
+def generate_configs(cfg, n_configs):
+    configs = []
+
+    def n_variations(d):
+        n_choices = []
+        for key,val in d.items():
+            if isinstance(val, Variation):
+                n_choices.append(len(val.choices))
+            elif isinstance(val, dict):
+                n_choices.append(n_variations(val))
+        return np.prod(n_choices)
+
+    def vary_dict(d):
+        new_dict = {}
+        for key,val in d.items():
+            if isinstance(val, Variation):
+                new_dict[key] = val.get()
+            elif isinstance(val, dict):
+                new_dict[key] = vary_dict(val)
+            else:
+                new_dict[key] = val
+
+        return new_dict
+
+    possible_variations = n_variations(cfg)
+    if possible_variations < n_configs:
+        n_configs = possible_variations
+
+    while len(configs) < n_configs:
+        new_config = vary_dict(cfg)
+        if new_config not in configs:
+            configs.append(new_config)
+    
+    return configs
+
 def eval_fit(config):
     pre, fit, post, out_path, experiment_id, cfg = config
     try:
@@ -153,22 +196,25 @@ def run_experiments(basecfg, cfgs, **kwargs):
 
             random.shuffle(configurations)
             for result in tqdm(to_iterator(configurations), total=len(configurations)):
-                experiment_id, results, out_file_content = result 
-                with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                    out_file.write(out_file_content)
+                if result is not None:
+                    experiment_id, results, out_file_content = result 
+                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                        out_file.write(out_file_content)
 
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
             for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total = len(configurations), disable = not verbose):
-                experiment_id, results, out_file_content = eval_return
-                with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                    out_file.write(out_file_content)
+                if eval_return is not None:
+                    experiment_id, results, out_file_content = eval_return
+                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                        out_file.write(out_file_content)
         else:
             for f in tqdm(configurations, disable = not verbose):
                 eval_return = eval_fit(f)
-                experiment_id, results, out_file_content = eval_return
-                with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                    out_file.write(out_file_content)
+                if eval_return is not None:
+                    experiment_id, results, out_file_content = eval_return
+                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                        out_file.write(out_file_content)
     except Exception as e:
         return_str = str(e) + "\n"
         return_str += traceback.format_exc() + "\n"
