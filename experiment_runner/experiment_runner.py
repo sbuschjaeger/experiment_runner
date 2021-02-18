@@ -8,137 +8,164 @@ import smtplib
 import socket
 import time
 import traceback
-
+from multiprocessing import Pool
+from tqdm import tqdm
 import numpy as np
 import ray
+import random
+import copy
 
-from experiment_runner.Utils import stacktrace, cfg_to_str, get_ctor_arguments, replace_objects
+def stacktrace(exception):
+    """convenience method for java-style stack trace error messages"""
+    import sys
+    import traceback
+    print("\n".join(traceback.format_exception(None, exception, exception.__traceback__)),
+        #file=sys.stderr,
+        flush=True)
 
-def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose):
+def replace_objects(d):
+    d = d.copy()
+    for k, v in d.items():
+        if isinstance(v, dict):
+            d[k] = replace_objects(v)
+        elif isinstance(v, list):
+            d[k] = [replace_objects({"key":vv})["key"] for vv in v]
+        elif isinstance(v, np.generic):
+            d[k] = v.item()
+        elif isinstance(v, np.ndarray):
+            d[k] = k 
+        elif isinstance(v, partial):
+            d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
+        elif callable(v) or inspect.isclass(v):
+            try:
+                d[k] = v.__name__
+            except:
+                d[k] = str(v) #.__name__
+        elif isinstance(v, object) and v.__class__.__module__ != 'builtins':
+            # print(type(v))
+            d[k] = str(v)
+        else:
+            d[k] = v
+    return d  
+
+# getfullargspec does not handle inheritance correctly.
+# Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
+def get_ctor_arguments(clazz):
+    args = ['self']
+    for C in clazz.__mro__:
+        if '__init__' in C.__dict__:
+            args += inspect.getfullargspec(C).args[1:]
+            args += inspect.getfullargspec(C).kwonlyargs
+    return args
+
+class Variation:
+    def __init__(self, list_of_choices):
+        self.choices = list_of_choices
+
+    def get(self):
+        return np.random.choice(self.choices)
+
+
+def generate_configs(cfg, n_configs):
+    configs = []
+
+    def n_variations(d):
+        n_choices = []
+        for key,val in d.items():
+            if isinstance(val, Variation):
+                n_choices.append(len(val.choices))
+            elif isinstance(val, dict):
+                n_choices.append(n_variations(val))
+        return np.prod(n_choices)
+
+    def vary_dict(d):
+        new_dict = {}
+        for key,val in d.items():
+            if isinstance(val, Variation):
+                new_dict[key] = val.get()
+            elif isinstance(val, dict):
+                new_dict[key] = vary_dict(val)
+            else:
+                new_dict[key] = val
+
+        return new_dict
+
+    possible_variations = n_variations(cfg)
+    if possible_variations < n_configs:
+        n_configs = possible_variations
+
+    while len(configs) < n_configs:
+        new_config = vary_dict(cfg)
+        if new_config not in configs:
+            configs.append(new_config)
+    
+    return configs
+
+def eval_fit(config):
+    pre, fit, post, out_path, experiment_id, cfg = config
     try:
         # Make a copy of the model config for all output-related stuff
         # This does not include any fields which hurt the output (e.g. x_test,y_test)
         # but are usually part of the original modelcfg
-        if not verbose:
-            import warnings
-            warnings.filterwarnings('ignore')
-        readable_modelcfg = copy.deepcopy(modelcfg)
-        readable_modelcfg["verbose"] = verbose
-        readable_modelcfg["seed"] = seed
-        readable_modelcfg["experiment_id"] = experiment_id
-
-        scores = {}
-        scores["fit_time"] = []
-        for m in metrics.keys():
-            scores[m+ "_train"] = []
-            scores[m+ "_test"] = []
+        # if not verbose:
+        #     import warnings
+        #     warnings.filterwarnings('ignore')
+        readable_cfg = copy.deepcopy(cfg)
+        readable_cfg["experiment_id"] = experiment_id
+        readable_cfg["out_path"] = out_path
 
         if not os.path.exists(out_path):
             os.makedirs(out_path)
 
         with open(out_path + "/config.json", 'w') as out:
-            out.write(json.dumps(replace_objects(readable_modelcfg), indent=4))
+            out.write(json.dumps(replace_objects(readable_cfg), indent=4))
 
-        for run_id in range(no_runs):
-            if verbose:
-                print("STARTING EXPERIMENT {}-{} WITH CONFIG {}".format(
-                    experiment_id,
-                    run_id,
-                    cfg_to_str(readable_modelcfg)))
-                print("\t {}-{} LOADING DATA".format(experiment_id, run_id))
+        scores = {}
+        repetitions = cfg.get("repetitions",1)
+        for i in range(repetitions):
+            if repetitions > 1:
+                rep_out_path = os.path.join(out_path,str(i))
+                if not os.path.exists(rep_out_path):
+                    os.makedirs(rep_out_path)
+            else:
+                rep_out_path = out_path
 
-            x_train, y_train, x_test, y_test = get_split(run_id=run_id)
+            experiment_cfg = {
+                **cfg,
+                'experiment_id':experiment_id,
+                'out_path':rep_out_path, 
+                'run_id':i
+            }
 
-            if verbose:
-                print("\t {}-{} LOADING DATA DONE".format(experiment_id, run_id))
-
-            # Prepare dict for model creation
-            tmpcfg = copy.deepcopy(modelcfg)
-            model_ctor = tmpcfg.pop("model")
-
-            print("WARNING: Reloading ", model_ctor, "from Hard Disk. " + \
-                  "If you changed the code since starting this experiment, " + \
-                  "then you fucked up your experiment now.")
-            # HACK: This should actually happen only once per Ray-Slave
-            from importlib import reload, import_module
-            # Make sure to use the most up-to-date code.
-            module = reload(import_module(model_ctor.__module__))
-            model_ctor = module.__getattribute__(model_ctor.__name__)
-            if "x_test" not in tmpcfg and "y_test" not in tmpcfg:
-                tmpcfg["x_test"] = x_test
-                tmpcfg["y_test"] = y_test
-            tmpcfg["verbose"] = verbose
-            tmpcfg["seed"] = seed
-            tmpcfg["out_path"] = out_path + "/" + str(run_id)
-            if not os.path.exists(tmpcfg["out_path"]):
-                os.makedirs(tmpcfg["out_path"])
-
-            pre_pipeline = modelcfg.get("pre_pipeline", None)
-            if pre_pipeline:
-                from sklearn.base import clone
-                from sklearn.pipeline import make_pipeline
-                # print(pipeline)
-                pre_pipeline = make_pipeline(*[clone(p) for p in pre_pipeline], "passthrough")
-            tmpcfg["pipeline"] = pre_pipeline
-
-            expected = {}
-            for key in get_ctor_arguments(model_ctor):
-                if key in tmpcfg:
-                    expected[key] = tmpcfg[key]
+            if pre is not None:
+                pre_stuff = pre(experiment_cfg)
+                start_time = time.time()
+                fit_stuff = fit(experiment_cfg, pre_stuff)
+                fit_time = time.time() - start_time
+            else:
+                start_time = time.time()
+                fit_stuff = fit(experiment_cfg)
+                fit_time = time.time() - start_time
             
-            model = model_ctor(**expected)
-            if pre_pipeline and "pipeline" not in expected:
-                # Model cannot handle the pipeline internally,
-                # so we put the model at the end of the pipeline and
-                # train the whole pipeline instead of the model.
-                pre_pipeline.steps[-1] = (model.__class__.__name__, model)
-                model = pre_pipeline
+            if post is not None:
+                cur_scores = post(experiment_cfg, fit_stuff)
+                cur_scores["fit_time"] = fit_time
 
-            start_time = time.time()
-            model.fit(x_train, y_train)
-            fit_time = time.time() - start_time
+                if i == 0:
+                    for k in list(cur_scores.keys()):
+                        scores[k] = [cur_scores[k]]
+                else:
+                    for k in list(scores.keys()):
+                        scores[k].append(cur_scores[k])
 
-            # TODO MAYBE ADD METRICS TO POST_PIPELINE?
-            scores["fit_time"].append(fit_time)
-            for name, fun in metrics.items():
-                if x_train is not None and y_train is not None:
-                    scores[name + "_train"].append(fun(model, x_train, y_train))
+        for k in list(scores.keys()):
+            scores["mean_" + k] = np.mean(scores[k])
+            scores["std_" + k] = np.std(scores[k])
 
-                if x_test is not None and y_test is not None:
-                    scores[name + "_test"].append(fun(model, x_test, y_test))
-
-            post_pipeline = modelcfg.get("post_pipeline", None)
-            if post_pipeline is None:
-                post_pipeline = []
-            
-            if verbose:
-                print("RUNNING POST_PIPELINE")
-            
-            previous_output = None
-            for step in post_pipeline:
-                if verbose:
-                    print("POST_PIPELINE STEP {}".format(step.__name__))
-                
-                previous_output = step(
-                    previous_output, 
-                    model, 
-                    out_path, 
-                    x_train, 
-                    y_train, 
-                    x_test, 
-                    y_test
-                )
-            
-        for score in list(scores.keys()):
-            if len(scores[score]) > 1:
-                scores["mean_"+ score] = np.array(scores[score]).mean()
-                scores["std_"+ score] = np.array(scores[score]).std()
-        readable_modelcfg["scores"] = scores
-
-        out_file_content = json.dumps(replace_objects(readable_modelcfg), sort_keys=True) + "\n"
-
-        print("DONE")
-        return experiment_id, run_id, scores, out_file_content
+        readable_cfg["scores"] = scores
+        out_file_content = json.dumps(replace_objects(readable_cfg), sort_keys=True) + "\n"
+        
+        return experiment_id, scores, out_file_content
     except Exception as identifier:
         stacktrace(identifier)
         # Ray is somtimes a little bit to quick in killing our processes if something bad happens 
@@ -147,30 +174,11 @@ def eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_p
         time.sleep(1.0)
         return None
 
-# Force every worker to reload their import path by terminating each worker after each run,  see https://github.com/ray-project/ray/issues/6449
-#(max_calls=1)
-@ray.remote 
-def ray_eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose):
-    return eval_model(modelcfg, metrics, get_split, seed, experiment_id, no_runs, out_path, verbose)
+@ray.remote(max_calls=1)
+def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
+    return eval_fit( (pre, fit, post, out_path, experiment_id, cfg) )
 
-def run_experiments(basecfg, models, **kwargs):
-    def get_train_test(basecfg, run_id):
-        if "train" in basecfg and "test" in basecfg:
-            x_train, y_train = basecfg["data_loader"](basecfg["train"])
-            x_test, y_test = basecfg["data_loader"](basecfg["test"])
-        else:
-            from sklearn.model_selection import StratifiedKFold
-            X, y = basecfg["data_loader"](basecfg["data"])
-            xval = StratifiedKFold(n_splits=basecfg.get("no_runs", 1),
-                       random_state=basecfg.get("seed", None),
-                       shuffle=True)
-            # TODO: This might be memory inefficient since list(..)
-            # materialises all splits, but only one is actually needed
-            train_idx, test_idx = list(xval.split(X, y))[run_id]
-            x_train, y_train = X[train_idx], y[train_idx]
-            x_test, y_test = X[test_idx], y[test_idx]
-        return x_train, y_train, x_test, y_test
-
+def run_experiments(basecfg, cfgs, **kwargs):
     try:
         return_str = ""
         results = []
@@ -183,94 +191,75 @@ def run_experiments(basecfg, models, **kwargs):
             if os.path.isfile(basecfg["out_path"] + "/results.jsonl"):
                 os.unlink(basecfg["out_path"] + "/results.jsonl")
 
-
-        no_runs = basecfg.get("no_runs", 1)
-        seed = basecfg.get("seed", None)
-
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
-        run_locally = basecfg.get("local_mode", False)
-        print("Starting {} experiments on {}".format(len(models), "localhost" if run_locally else "ray"))
+        backend = basecfg.get("backend", "single")
+        verbose = basecfg.get("verbose", True)
+        print("Starting {} experiments via {} backend".format(len(cfgs), backend))
         
-        if not run_locally:
-            ray.init(address=basecfg.get("ray_head", None), _redis_password=basecfg.get("redis_password", None))
+        if backend == "ray":
+            ray.init(address=basecfg.get("address", "auto"), _redis_password=basecfg.get("redis_password", None))
         
-        for model_cfg in models:
-            for cfg in basecfg:
-                if cfg not in model_cfg:
-                    model_cfg[cfg] = basecfg[cfg]
-
-        if not run_locally:
-            futures = [ray_eval_model.options( 
-                        num_cpus=modelcfg.get("num_cpus", 1),
-                        num_gpus=modelcfg.get("num_gpus", 1)
+        if backend == "ray":
+            configurations = [ray_eval_fit.options( 
+                        num_cpus=basecfg.get("num_cpus", 1),
+                        num_gpus=basecfg.get("num_gpus", 0),
+                        memory = basecfg.get("max_memory", 1000 * 1024 * 1024) # 1 GB
                     ).remote(
-                        modelcfg,
-                        modelcfg["scoring"],
-                        partial(get_train_test, basecfg=modelcfg),
-                        seed,
+                        basecfg.get("pre",None),
+                        basecfg.get("fit", None),
+                        basecfg.get("post",None),
+                        os.path.join(basecfg["out_path"], str(experiment_id)),
                         experiment_id,
-                        no_runs,
-                        modelcfg.get("out_path", ".") + "/{}".format(experiment_id),
-                        modelcfg.get("verbose", False)
-                    ) for experiment_id, modelcfg in enumerate(models)
+                        cfg
+                    ) for experiment_id, cfg in enumerate(cfgs)
             ]
             print("SUBMITTED JOBS, NOW WAITING")
         else:
-            futures = [partial(eval_model,
-                    modelcfg,
-                    modelcfg["scoring"],
-                    partial(get_train_test, basecfg=modelcfg),
-                    seed,
+            configurations = [
+                    (
+                    basecfg.get("pre",None),
+                    basecfg.get("fit", None),
+                    basecfg.get("post",None),
+                    os.path.join(basecfg["out_path"], str(experiment_id)),
                     experiment_id,
-                    no_runs,
-                    modelcfg.get("out_path", ".") + "/{}".format(experiment_id),
-                    modelcfg.get("verbose", False)
-                ) for experiment_id, modelcfg in enumerate(models)
+                    cfg
+                ) for experiment_id, cfg in enumerate(cfgs)
             ]
-        total_no_experiments = len(futures)
-        total_id = 0
-        while futures:
-            if not run_locally:
-                result, futures = ray.wait(futures)
-                eval_return = ray.get(result[0])
-            else:
-                f = futures.pop(0)
-                eval_return = f()
-            if eval_return is None:
-                print("NONE!")
-                continue
-            # for total_id, eval_return in enumerate(pool.imap_unordered(eval_model, experiments)):
-            experiment_id, run_id, results, out_file_content = eval_return
-            with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:# HACK AROUND THIS
-                out_file.write(out_file_content)
 
-            accuracy = results.get("accuracy_test", 0)
-            fit_time = results.get("fit_time", 0)
-            print("{}/{} FINISHED. LAST EXPERIMENT WAS {}-{} WITH ACC {} +- {} in {} s".format(
-                total_id+1, total_no_experiments, experiment_id, run_id,
-                np.mean(accuracy) * 100.0, np.var(accuracy)*(100.0**2) , np.mean(fit_time)))
-            total_id += 1
+        if backend == "ray":
+            # https://github.com/ray-project/ray/issues/8164
+            def to_iterator(configs):
+                while configs:
+                    result, configs = ray.wait(configs)
+                    yield ray.get(result[0])
+
+            random.shuffle(configurations)
+            for result in tqdm(to_iterator(configurations), total=len(configurations)):
+                if result is not None:
+                    experiment_id, results, out_file_content = result 
+                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                        out_file.write(out_file_content)
+
+        elif backend == "multiprocessing":
+            pool = Pool(basecfg.get("num_cpus", 1))
+            for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total = len(configurations), disable = not verbose):
+                if eval_return is not None:
+                    experiment_id, results, out_file_content = eval_return
+                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                        out_file.write(out_file_content)
+        else:
+            for f in tqdm(configurations, disable = not verbose):
+                eval_return = eval_fit(f)
+                if eval_return is not None:
+                    experiment_id, results, out_file_content = eval_return
+                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                        out_file.write(out_file_content)
     except Exception as e:
         return_str = str(e) + "\n"
         return_str += traceback.format_exc() + "\n"
     finally:
         print(return_str)
-        ray.shutdown()
-        if "mail" in basecfg:
-            if "smtp_server" in basecfg:
-                server = smtplib.SMTP(host=basecfg["smtp_server"], port=25)
-            else:
-                server = smtplib.SMTP(host='postamt.cs.uni-dortmund.de', port=25)
-
-            msg = MIMEMultipart()
-            msg["From"] = socket.gethostname() + "@tu-dortmund.de"
-            msg["To"] = basecfg["mail"]
-            if "name" in basecfg:
-                msg["Subject"] = "{} finished on {}".format(basecfg["name"], socket.gethostname())
-            else:
-                return_str = "All experiments finished on " + socket.gethostname()
-
-            msg.attach(MIMEText(return_str, "plain"))
-            server.sendmail(msg['From'], msg['To'], msg.as_string())
+        if backend == "ray":
+            ray.shutdown()
