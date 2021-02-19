@@ -14,6 +14,9 @@ import numpy as np
 import ray
 import random
 import copy
+import inspect
+import signal
+import time
 
 def stacktrace(exception):
     """convenience method for java-style stack trace error messages"""
@@ -101,8 +104,14 @@ def generate_configs(cfg, n_configs):
     
     return configs
 
+def raise_timeout():
+    raise TimeoutError()
+
 def eval_fit(config):
-    pre, fit, post, out_path, experiment_id, cfg = config
+    pre, fit, post, timeout, out_path, experiment_id, cfg = config
+    if timeout > 0:
+        signal.signal(signal.SIGALRM, raise_timeout)
+        signal.alarm(timeout)
     try:
         # Make a copy of the model config for all output-related stuff
         # This does not include any fields which hurt the output (e.g. x_test,y_test)
@@ -165,12 +174,14 @@ def eval_fit(config):
         readable_cfg["scores"] = scores
         out_file_content = json.dumps(replace_objects(readable_cfg), sort_keys=True) + "\n"
         
+        signal.alarm(0)
         return experiment_id, scores, out_file_content
     except Exception as identifier:
         stacktrace(identifier)
         # Ray is somtimes a little bit to quick in killing our processes if something bad happens 
         # In this case we do not see the stack trace which is super annyoing. Therefore, we sleep a
         # second to wait until the print has been processed / flushed
+        signal.alarm(0)
         time.sleep(1.0)
         return None
 
@@ -181,7 +192,7 @@ def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
 def run_experiments(basecfg, cfgs, **kwargs):
     try:
         return_str = ""
-        results = []
+        # results = []
         if "out_path" in basecfg:
             basecfg["out_path"] = os.path.abspath(basecfg["out_path"])
 
@@ -196,6 +207,7 @@ def run_experiments(basecfg, cfgs, **kwargs):
         # ray.init(address="ls8ws013:6379")
         backend = basecfg.get("backend", "single")
         verbose = basecfg.get("verbose", True)
+
         print("Starting {} experiments via {} backend".format(len(cfgs), backend))
         
         if backend == "ray":
@@ -210,6 +222,7 @@ def run_experiments(basecfg, cfgs, **kwargs):
                         basecfg.get("pre",None),
                         basecfg.get("fit", None),
                         basecfg.get("post",None),
+                        basecfg.get("timeout", 0),
                         os.path.join(basecfg["out_path"], str(experiment_id)),
                         experiment_id,
                         cfg
@@ -222,6 +235,7 @@ def run_experiments(basecfg, cfgs, **kwargs):
                     basecfg.get("pre",None),
                     basecfg.get("fit", None),
                     basecfg.get("post",None),
+                    basecfg.get("timeout", 0),
                     os.path.join(basecfg["out_path"], str(experiment_id)),
                     experiment_id,
                     cfg

@@ -22,6 +22,7 @@ Each experiment is defined by a basis config `basecfg` and a list of individual 
 - `redis_password` (optional, only used by {`ray`}, defaults to `None`): Redis password of the ray head
 - `verbose` (optional {`True`, `False`}, defaults to `True`): Displays a TQDM progress bar over all experiments.
 - `repetitions` (optional, defaults to 1): How often this experiment should be repeated (e.g. due to randomness). Note that the `experiment_runner` does not take care of random seeds, but you have to implement it in `fit`.
+- `timeout` (optional, defaults to 0): Sets an optional timeout in seconds. A single experiment is stopped after `timeout` seconds. No statistcs are kept and an exception is printed. Execution of other experiments is resumed as usual.
   
 
 An example `basecfg` could be:
