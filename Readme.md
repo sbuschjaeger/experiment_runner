@@ -6,7 +6,7 @@ This is a simple package / script which can be used to run multiple experiments 
 
 - `fit(cfg, returned_by_pre)`: Is called after `pre` has been called. Whatever has been returned by `pre` is passed to this function through `returned_by_pre`. Place any code for the actual experiment in this function. For example, if you want to fit a model you should place the code here. Make sure, that you return anything (also stuff computed by `pre`) which you might need in the next function. If you don't return anything, just return `None`. 
 
-- `post(cfg, returned_by_fit)`: Is called after `fit` has been called. Whatever has been returned by `fit` is passed to this function through `retruned_by_pre`. Usually you want to compute some statistics / metrics about your experiment, e.g. a test error, test loss etc. This function should return a dictionary with key/value pairs for each metrics. If you do not compute any metrics, return an empty dictionary `{}`. Note that the `experiment_runner` will automatically add a field `fit_time` into this dictionary which is the time spend in the `fit` function (measured via `time.time()`). 
+- `post(cfg, returned_by_fit)`: Is called after `fit` has been called. Whatever has been returned by `fit` is passed to this function through `returned_by_fit`. Usually you want to compute some statistics / metrics about your experiment, e.g. a test error, test loss etc. This function should return a dictionary with key/value pairs for each metrics. If you do not compute any metrics, return an empty dictionary `{}`. Note that the `experiment_runner` will automatically add a field `fit_time` into this dictionary which is the time spend in the `fit` function (measured via `time.time()`). 
 
 Each experiment is defined by a basis config `basecfg` and a list of individual configs `cfgs`. The `basecfg` is a dictionary containing the basis configuration of the experiment with the following fields:
 
@@ -22,6 +22,7 @@ Each experiment is defined by a basis config `basecfg` and a list of individual 
 - `redis_password` (optional, only used by {`ray`}, defaults to `None`): Redis password of the ray head
 - `verbose` (optional {`True`, `False`}, defaults to `True`): Displays a TQDM progress bar over all experiments.
 - `repetitions` (optional, defaults to 1): How often this experiment should be repeated (e.g. due to randomness). Note that the `experiment_runner` does not take care of random seeds, but you have to implement it in `fit`.
+- `timeout` (optional, defaults to 0): Sets an optional timeout in seconds. A single experiment is stopped after `timeout` seconds. No statistcs are kept and an exception is printed. Execution of other experiments is resumed as usual.
   
 
 An example `basecfg` could be:
