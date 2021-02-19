@@ -14,6 +14,7 @@ import numpy as np
 import ray
 import random
 import copy
+import inspect
 
 def stacktrace(exception):
     """convenience method for java-style stack trace error messages"""
