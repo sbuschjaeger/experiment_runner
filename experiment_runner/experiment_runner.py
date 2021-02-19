@@ -1,5 +1,4 @@
-import copy
-
+"""Experiment Runner. It's great!"""
 from functools import partial
 import json
 import os
@@ -8,8 +7,12 @@ import random
 import time
 import traceback
 from multiprocessing import Pool
-from tqdm import tqdm
+import copy
+import inspect
+import signal
+import time
 import numpy as np
+from tqdm import tqdm
 try:
     import ray
     @ray.remote(max_calls=1)
@@ -18,10 +21,6 @@ try:
 except ImportError as error:
     ray = object()
     pass
-import copy
-import inspect
-import signal
-import time
 
 def stacktrace(exception):
     """convenience method for java-style stack trace error messages"""
