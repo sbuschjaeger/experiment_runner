@@ -1,18 +1,23 @@
 import copy
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+
 from functools import partial
 import json
 import os
-import smtplib
-import socket
+import inspect
+import random
 import time
 import traceback
 from multiprocessing import Pool
 from tqdm import tqdm
 import numpy as np
-import ray
-import random
+try:
+    import ray
+    @ray.remote(max_calls=1)
+    def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
+        return eval_fit( (pre, fit, post, out_path, experiment_id, cfg) )
+except ImportError as error:
+    ray = object()
+    pass
 import copy
 
 def stacktrace(exception):
@@ -174,9 +179,7 @@ def eval_fit(config):
         time.sleep(1.0)
         return None
 
-@ray.remote(max_calls=1)
-def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
-    return eval_fit( (pre, fit, post, out_path, experiment_id, cfg) )
+
 
 def run_experiments(basecfg, cfgs, **kwargs):
     try:
