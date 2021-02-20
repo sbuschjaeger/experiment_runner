@@ -8,5 +8,13 @@ setup(name='experiment_runner',
       author_email='{sebastian.buschjaeger, lukas.pfahler}@tu-dortmund.de',
       license='MIT',
       packages=['experiment_runner'],
-      zip_safe=False
+      zip_safe=False,
+      setup_requires=[
+            "numpy",
+            "tqdm"
+      ],
+      extras_require={
+            "ray": ["ray"],
+            "malocher": ["malocher @ git+https://github.com/Whadup/malocher@main#egg=malocher"]
+      }
 )
