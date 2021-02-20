@@ -15,6 +15,7 @@ try:
     import ray
     @ray.remote(max_calls=1)
     def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
+        """wraps eval_fit to run with ray .remote()"""
         return eval_fit((pre, fit, post, out_path, experiment_id, cfg))
 except ImportError as error:
     ray = None
@@ -30,6 +31,10 @@ def stacktrace(exception):
         flush=True)
 
 def replace_objects(d):
+    """
+    convenience method to json-serialize configs that include objects,
+    partials, numpy-arrays and other non-json-conform things.
+    """
     d = d.copy()
     for k, v in d.items():
         if isinstance(v, dict):
@@ -54,9 +59,11 @@ def replace_objects(d):
             d[k] = v
     return d
 
-# getfullargspec does not handle inheritance correctly.
-# Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
 def get_ctor_arguments(clazz):
+    """
+    getfullargspec does not handle inheritance correctly.
+    Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
+    """
     args = ['self']
     for C in clazz.__mro__:
         if '__init__' in C.__dict__:
@@ -65,14 +72,17 @@ def get_ctor_arguments(clazz):
     return args
 
 class Variation:
+    """Handles testing different hyperparameter variantions"""
     def __init__(self, list_of_choices):
         self.choices = list_of_choices
 
     def get(self):
+        """return a random variant"""
         return np.random.choice(self.choices)
 
 
 def generate_configs(cfg, n_configs):
+    """Resolve configs which include `Variation` parameters"""
     configs = []
 
     def n_variations(d):
@@ -108,9 +118,15 @@ def generate_configs(cfg, n_configs):
     return configs
 
 def raise_timeout():
+    """because lambdas cannot raise exceptions?"""
     raise TimeoutError()
 
 def eval_fit(config):
+    """
+    Central internal method of the that calls pre, fit and post,
+    handles repeated execution of experiments, measures fit time and
+    stores results.
+    """
     pre, fit, post, timeout, out_path, experiment_id, cfg = config
     if timeout > 0:
         signal.signal(signal.SIGALRM, raise_timeout)
@@ -191,6 +207,13 @@ def eval_fit(config):
 
 
 def run_experiments(basecfg, cfgs, **kwargs):
+    """
+    The main API call of the experiment_runner.
+    Pass a base_cfg to configure the execution of the experiments.
+    Pass a list of `cfgs` to specify each experiment.
+
+    See readme for available basecfg settings and reserved cfg keys.
+    """
     try:
         return_str = ""
         # results = []
