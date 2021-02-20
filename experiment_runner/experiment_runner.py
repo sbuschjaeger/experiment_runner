@@ -8,24 +8,23 @@ import time
 import traceback
 from multiprocessing import Pool
 import copy
-import inspect
 import signal
-import time
 import numpy as np
 from tqdm import tqdm
 try:
     import ray
     @ray.remote(max_calls=1)
     def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
-        return eval_fit( (pre, fit, post, out_path, experiment_id, cfg) )
+        return eval_fit((pre, fit, post, out_path, experiment_id, cfg))
 except ImportError as error:
-    ray = object()
-    pass
+    ray = None
+try:
+    import malocher
+except ImportError as error:
+    malocher = None
 
 def stacktrace(exception):
     """convenience method for java-style stack trace error messages"""
-    import sys
-    import traceback
     print("\n".join(traceback.format_exception(None, exception, exception.__traceback__)),
         #file=sys.stderr,
         flush=True)
@@ -40,7 +39,7 @@ def replace_objects(d):
         elif isinstance(v, np.generic):
             d[k] = v.item()
         elif isinstance(v, np.ndarray):
-            d[k] = k 
+            d[k] = k
         elif isinstance(v, partial):
             d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
         elif callable(v) or inspect.isclass(v):
@@ -53,7 +52,7 @@ def replace_objects(d):
             d[k] = str(v)
         else:
             d[k] = v
-    return d  
+    return d
 
 # getfullargspec does not handle inheritance correctly.
 # Taken from https://stackoverflow.com/questions/36994217/retrieving-arguments-from-a-class-with-multiple-inheritance
@@ -78,7 +77,7 @@ def generate_configs(cfg, n_configs):
 
     def n_variations(d):
         n_choices = []
-        for key,val in d.items():
+        for val in d.values():
             if isinstance(val, Variation):
                 n_choices.append(len(val.choices))
             elif isinstance(val, dict):
@@ -87,7 +86,7 @@ def generate_configs(cfg, n_configs):
 
     def vary_dict(d):
         new_dict = {}
-        for key,val in d.items():
+        for key, val in d.items():
             if isinstance(val, Variation):
                 new_dict[key] = val.get()
             elif isinstance(val, dict):
@@ -105,7 +104,7 @@ def generate_configs(cfg, n_configs):
         new_config = vary_dict(cfg)
         if new_config not in configs:
             configs.append(new_config)
-    
+
     return configs
 
 def raise_timeout():
@@ -134,10 +133,10 @@ def eval_fit(config):
             out.write(json.dumps(replace_objects(readable_cfg), indent=4))
 
         scores = {}
-        repetitions = cfg.get("repetitions",1)
+        repetitions = cfg.get("repetitions", 1)
         for i in range(repetitions):
             if repetitions > 1:
-                rep_out_path = os.path.join(out_path,str(i))
+                rep_out_path = os.path.join(out_path, str(i))
                 if not os.path.exists(rep_out_path):
                     os.makedirs(rep_out_path)
             else:
@@ -146,7 +145,7 @@ def eval_fit(config):
             experiment_cfg = {
                 **cfg,
                 'experiment_id':experiment_id,
-                'out_path':rep_out_path, 
+                'out_path':rep_out_path,
                 'run_id':i
             }
 
@@ -159,7 +158,7 @@ def eval_fit(config):
                 start_time = time.time()
                 fit_stuff = fit(experiment_cfg)
                 fit_time = time.time() - start_time
-            
+
             if post is not None:
                 cur_scores = post(experiment_cfg, fit_stuff)
                 cur_scores["fit_time"] = fit_time
@@ -177,12 +176,12 @@ def eval_fit(config):
 
         readable_cfg["scores"] = scores
         out_file_content = json.dumps(replace_objects(readable_cfg), sort_keys=True) + "\n"
-        
+
         signal.alarm(0)
         return experiment_id, scores, out_file_content
     except Exception as identifier:
         stacktrace(identifier)
-        # Ray is somtimes a little bit to quick in killing our processes if something bad happens 
+        # Ray is somtimes a little bit to quick in killing our processes if something bad happens
         # In this case we do not see the stack trace which is super annyoing. Therefore, we sleep a
         # second to wait until the print has been processed / flushed
         signal.alarm(0)
@@ -211,19 +210,22 @@ def run_experiments(basecfg, cfgs, **kwargs):
         verbose = basecfg.get("verbose", True)
 
         print("Starting {} experiments via {} backend".format(len(cfgs), backend))
-        
+
         if backend == "ray":
-            ray.init(address=basecfg.get("address", "auto"), _redis_password=basecfg.get("redis_password", None))
-        
+            ray.init(
+                address=basecfg.get("address", "auto"),
+                _redis_password=basecfg.get("redis_password", None)
+            )
+
         if backend == "ray":
-            configurations = [ray_eval_fit.options( 
+            configurations = [ray_eval_fit.options(
                         num_cpus=basecfg.get("num_cpus", 1),
                         num_gpus=basecfg.get("num_gpus", 0),
-                        memory = basecfg.get("max_memory", 1000 * 1024 * 1024) # 1 GB
+                        memory=basecfg.get("max_memory", 1000 * 1024 * 1024) # 1 GB
                     ).remote(
-                        basecfg.get("pre",None),
+                        basecfg.get("pre", None),
                         basecfg.get("fit", None),
-                        basecfg.get("post",None),
+                        basecfg.get("post", None),
                         basecfg.get("timeout", 0),
                         os.path.join(basecfg["out_path"], str(experiment_id)),
                         experiment_id,
@@ -234,9 +236,9 @@ def run_experiments(basecfg, cfgs, **kwargs):
         else:
             configurations = [
                     (
-                    basecfg.get("pre",None),
+                    basecfg.get("pre", None),
                     basecfg.get("fit", None),
-                    basecfg.get("post",None),
+                    basecfg.get("post", None),
                     basecfg.get("timeout", 0),
                     os.path.join(basecfg["out_path"], str(experiment_id)),
                     experiment_id,
@@ -254,19 +256,19 @@ def run_experiments(basecfg, cfgs, **kwargs):
             random.shuffle(configurations)
             for result in tqdm(to_iterator(configurations), total=len(configurations)):
                 if result is not None:
-                    experiment_id, results, out_file_content = result 
+                    experiment_id, results, out_file_content = result
                     with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
                         out_file.write(out_file_content)
 
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
-            for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total = len(configurations), disable = not verbose):
+            for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total=len(configurations), disable=not verbose):
                 if eval_return is not None:
                     experiment_id, results, out_file_content = eval_return
                     with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
                         out_file.write(out_file_content)
         else:
-            for f in tqdm(configurations, disable = not verbose):
+            for f in tqdm(configurations, disable=not verbose):
                 eval_return = eval_fit(f)
                 if eval_return is not None:
                     experiment_id, results, out_file_content = eval_return
