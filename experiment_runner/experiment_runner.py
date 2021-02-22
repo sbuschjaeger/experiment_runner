@@ -282,6 +282,27 @@ def run_experiments(basecfg, cfgs, **kwargs):
                     experiment_id, results, out_file_content = result
                     with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
                         out_file.write(out_file_content)
+        elif backend == "malocher":
+            malocher_dir = basecfg.get("malocher_dir", ".malocher_dir")
+            malocher_machines = basecfg["malocher_machines"]
+            malocher_user = basecfg["malocher_user"]
+            malocher_port = basecfg.get("malocher_port", 22)
+            malocher_key = basecfg.get("malocher_key", "~/.ssh/id_rsa")
+            for cfg in configurations:
+                malocher.submit(eval_fit, cfg, malocher_dir=malocher_dir)
+            results = malocher.process_all(
+                malocher_dir=malocher_dir,
+                ssh_machines=malocher_machines,
+                ssh_username=malocher_user,
+                ssh_port=malocher_port,
+                ssh_private_key=malocher_key,
+            )
+            for job_id, eval_return in tqdm(results, total=len(configurations), disable=not verbose):
+                if eval_return is not None:
+                    experiment_id, results, out_file_content = eval_return
+                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                        out_file.write(out_file_content)
+
 
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
