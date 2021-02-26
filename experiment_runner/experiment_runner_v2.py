@@ -15,7 +15,7 @@ import ray
 import random
 import copy
 
-from experiment_runner.Utils import stacktrace, cfg_to_str, get_ctor_arguments, replace_objects
+from experiment_runner.Utils import stacktrace, replace_objects
 
 def eval_fit(config):
     pre, fit, post, out_path, experiment_id, cfg = config
