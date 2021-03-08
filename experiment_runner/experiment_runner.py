@@ -117,7 +117,7 @@ def generate_configs(cfg, n_configs):
 
     return configs
 
-def raise_timeout():
+def raise_timeout(signum, frame):
     """because lambdas cannot raise exceptions?"""
     raise TimeoutError()
 
