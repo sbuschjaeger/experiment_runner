@@ -223,8 +223,8 @@ def run_experiments(basecfg, cfgs, **kwargs):
         if not os.path.exists(basecfg["out_path"]):
             os.makedirs(basecfg["out_path"])
         else:
-            if os.path.isfile(basecfg["out_path"] + "/results.jsonl"):
-                os.unlink(basecfg["out_path"] + "/results.jsonl")
+            if os.path.isfile(os.path.join(basecfg["out_path"], "results.jsonl")):
+                os.unlink(os.path.join(basecfg["out_path"], "results.jsonl"))
 
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
