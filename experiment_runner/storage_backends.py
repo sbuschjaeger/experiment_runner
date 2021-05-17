@@ -2,6 +2,8 @@ import json
 import os
 from abc import ABC, abstractmethod
 
+from pymongo import MongoClient
+
 
 class StorageBackend(ABC):
     @abstractmethod
@@ -30,7 +32,7 @@ class FSStorageBackend(StorageBackend):
         # Construct output path.
         out_path = os.path.join(self.out_path, str(experiment_id))
 
-        # Check, whether the path exists otherwise create the directories..
+        # Check, whether the path exists otherwise create the directories.
         if not os.path.exists(out_path):
             os.makedirs(out_path)
 
@@ -41,3 +43,19 @@ class FSStorageBackend(StorageBackend):
     def add_result(self, result: dict):
         with open(os.path.join(self.out_path, "results.jsonl"), "a", 1) as out_file:
             out_file.write(json.dumps(result, sort_keys=True) + "\n")
+
+
+class MongoDBStorageBackend(StorageBackend):
+    def __init__(self, mongo_host: str, mongo_port: int, mongo_database: str):
+        # Save properties.
+        self.host = mongo_host
+        self.port = mongo_port
+        self.database = mongo_database
+
+    def write_experiment_config(self, cfg: dict):
+        client = MongoClient(self.host, self.port)
+        client[self.database]["experiments"].insert_one(cfg)
+
+    def add_result(self, result: dict):
+        client = MongoClient(self.host, self.port)
+        client[self.database]["results"].insert_one(result)
