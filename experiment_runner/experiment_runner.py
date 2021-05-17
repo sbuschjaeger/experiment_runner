@@ -9,7 +9,7 @@ from multiprocessing import Pool
 import copy
 import signal
 import numpy as np
-from experiment_runner.storage_backends import FSStorageBackend
+from experiment_runner.storage_backends import FSStorageBackend, MongoDBStorageBackend
 from tqdm import tqdm
 try:
     import ray
@@ -215,27 +215,36 @@ def run_experiments(basecfg: dict, cfgs, **kwargs):
         return_str = ""
         # results = []
 
-        # Initialize storage backend.
-        if "storage_backend" not in basecfg.keys():
-            print("No 'storage_backend' specified in base config. Defaulting to 'fs'.")
-            basecfg["storage_backend"] = "fs"
-
-        if basecfg["storage_backend"] == "fs":
-            if "out_path" in basecfg.keys():
-                storage_backend = FSStorageBackend(basecfg["out_path"])
-            else:
-                raise ValueError("Could not initialize storage backend 'fs'. Key 'out_path' missing in base config.")
-        else:
-            raise ValueError(f"Unable to initialize storage backend. Unknown backend '{basecfg['storage_backend']}' provided.")
-
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
         # ray.init(address="ls8ws013:6379")
         backend = basecfg.get("backend", "single")
         verbose = basecfg.get("verbose", True)
 
-        print("Starting {} experiments via {} backend".format(len(cfgs), backend))
+        # Choose storage backend from base cfg.
+        if "storage_backend" not in basecfg.keys():
+            print("No 'storage_backend' specified in base config. Defaulting to 'fs'.")
+            basecfg["storage_backend"] = "fs"
 
+        # Initialize storage backend.
+        if basecfg["storage_backend"] == "fs":
+            if "out_path" in basecfg.keys():
+                storage_backend = FSStorageBackend(basecfg["out_path"])
+                if verbose:
+                    print(f"Storage backend: '{basecfg['storage_backend']}' with output path '{basecfg['out_path']}'.")
+            else:
+                raise ValueError("Could not initialize storage backend 'fs'. Key 'out_path' missing in base config.")
+        elif basecfg["storage_backend"] == "mongodb":
+            storage_backend = MongoDBStorageBackend(basecfg.get("mongo_host", "localhost"),
+                                                    basecfg.get("mongo_port", 27017),
+                                                    basecfg.get("mongo_database", "experiment_runner"))
+            if verbose:
+                print(f"Storage backend: '{basecfg['storage_backend']}' connected to '{storage_backend.host}:{storage_backend.port}' and database '{storage_backend.database}'.")
+        else:
+            raise ValueError(f"Unable to initialize storage backend. Unknown backend '{basecfg['storage_backend']}' provided.")
+
+        # Run experiments.
+        print("Starting {} experiments via {} backend".format(len(cfgs), backend))
         if backend == "ray":
             ray.init(
                 address=basecfg.get("address", "auto"),
