@@ -145,7 +145,7 @@ def eval_fit(config):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
 
-        with open(out_path + "/config.json", 'w') as out:
+        with open(os.path.join(out_path,  "config.json"), 'w') as out:
             out.write(json.dumps(replace_objects(readable_cfg), indent=4))
 
         scores = {}
@@ -280,7 +280,7 @@ def run_experiments(basecfg, cfgs, **kwargs):
             for result in tqdm(to_iterator(configurations), total=len(configurations)):
                 if result is not None:
                     experiment_id, results, out_file_content = result
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
                         out_file.write(out_file_content)
         elif backend == "malocher":
             malocher_dir = basecfg.get("malocher_dir", ".malocher_dir")
@@ -300,7 +300,7 @@ def run_experiments(basecfg, cfgs, **kwargs):
             for job_id, eval_return in tqdm(results, total=len(configurations), disable=not verbose):
                 if eval_return is not None:
                     experiment_id, results, out_file_content = eval_return
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
                         out_file.write(out_file_content)
 
 
@@ -309,14 +309,14 @@ def run_experiments(basecfg, cfgs, **kwargs):
             for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total=len(configurations), disable=not verbose):
                 if eval_return is not None:
                     experiment_id, results, out_file_content = eval_return
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
                         out_file.write(out_file_content)
         else:
             for f in tqdm(configurations, disable=not verbose):
                 eval_return = eval_fit(f)
                 if eval_return is not None:
                     experiment_id, results, out_file_content = eval_return
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
                         out_file.write(out_file_content)
     except Exception as e:
         return_str = str(e) + "\n"
