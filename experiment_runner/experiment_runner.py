@@ -14,9 +14,9 @@ from tqdm import tqdm
 try:
     import ray
     @ray.remote(max_calls=1)
-    def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
+    def ray_eval_fit(pre, fit, post, experiment_id, cfg, storage_backend):
         """wraps eval_fit to run with ray .remote()"""
-        return eval_fit((pre, fit, post, out_path, experiment_id, cfg))
+        return eval_fit((pre, fit, post, experiment_id, cfg, storage_backend))
 except ImportError as error:
     ray = None
 try:
@@ -127,7 +127,7 @@ def eval_fit(config):
     handles repeated execution of experiments, measures fit time and
     stores results.
     """
-    pre, fit, post, timeout, out_path, experiment_id, cfg, storage_backend = config
+    pre, fit, post, timeout, experiment_id, cfg, storage_backend = config
     if timeout > 0:
         signal.signal(signal.SIGALRM, raise_timeout)
         signal.alarm(timeout)
@@ -140,28 +140,33 @@ def eval_fit(config):
         #     warnings.filterwarnings('ignore')
         readable_cfg = copy.deepcopy(cfg)
         readable_cfg["experiment_id"] = experiment_id
-        readable_cfg["out_path"] = out_path
+        if isinstance(storage_backend, FSStorageBackend):
+            readable_cfg["out_path"] = storage_backend.out_path
 
-        # Write the config to disk.
+        # Write the config to the storage backend.
         storage_backend.write_experiment_config(replace_objects(readable_cfg))
 
         scores = {}
         repetitions = cfg.get("repetitions", 1)
         for i in range(repetitions):
-            if repetitions > 1:
-                rep_out_path = os.path.join(out_path, str(i))
-                if not os.path.exists(rep_out_path):
-                    os.makedirs(rep_out_path)
-            else:
-                rep_out_path = out_path
-
+            # Define an experiment config for each repetition.
             experiment_cfg = {
                 **cfg,
-                'experiment_id':experiment_id,
-                'out_path':rep_out_path,
-                'run_id':i
+                'experiment_id': experiment_id,
+                'run_id': i
             }
 
+            # Update output paths, given that filesystem storage is used.
+            if isinstance(storage_backend, FSStorageBackend):
+                if repetitions > 1:
+                    rep_out_path = os.path.join(storage_backend.out_path, str(i))
+                    if not os.path.exists(rep_out_path):
+                        os.makedirs(rep_out_path)
+                else:
+                    rep_out_path = storage_backend.out_path
+                experiment_cfg["out_path"] = rep_out_path
+
+            # Run the experiment.
             if pre is not None:
                 pre_stuff = pre(experiment_cfg)
                 start_time = time.time()
@@ -183,6 +188,7 @@ def eval_fit(config):
                     for k in list(scores.keys()):
                         scores[k].append(cur_scores[k])
 
+        # Process results.
         for k in list(scores.keys()):
             scores["mean_" + k] = np.mean(scores[k])
             scores["std_" + k] = np.std(scores[k])
@@ -261,7 +267,6 @@ def run_experiments(basecfg: dict, cfgs, **kwargs):
                         basecfg.get("fit", None),
                         basecfg.get("post", None),
                         basecfg.get("timeout", 0),
-                        os.path.join(basecfg["out_path"], str(experiment_id)),
                         experiment_id,
                         cfg,
                         storage_backend
@@ -275,7 +280,6 @@ def run_experiments(basecfg: dict, cfgs, **kwargs):
                     basecfg.get("fit", None),
                     basecfg.get("post", None),
                     basecfg.get("timeout", 0),
-                    os.path.join(basecfg["out_path"], str(experiment_id)),
                     experiment_id,
                     cfg,
                     storage_backend
