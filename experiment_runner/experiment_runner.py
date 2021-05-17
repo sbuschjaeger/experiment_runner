@@ -1,6 +1,5 @@
 """Experiment Runner. It's great!"""
 from functools import partial
-import json
 import os
 import inspect
 import random
@@ -10,6 +9,7 @@ from multiprocessing import Pool
 import copy
 import signal
 import numpy as np
+from experiment_runner.storage_backends import FSStorageBackend
 from tqdm import tqdm
 try:
     import ray
@@ -127,7 +127,7 @@ def eval_fit(config):
     handles repeated execution of experiments, measures fit time and
     stores results.
     """
-    pre, fit, post, timeout, out_path, experiment_id, cfg = config
+    pre, fit, post, timeout, out_path, experiment_id, cfg, storage_backend = config
     if timeout > 0:
         signal.signal(signal.SIGALRM, raise_timeout)
         signal.alarm(timeout)
@@ -142,11 +142,8 @@ def eval_fit(config):
         readable_cfg["experiment_id"] = experiment_id
         readable_cfg["out_path"] = out_path
 
-        if not os.path.exists(out_path):
-            os.makedirs(out_path)
-
-        with open(os.path.join(out_path,  "config.json"), 'w') as out:
-            out.write(json.dumps(replace_objects(readable_cfg), indent=4))
+        # Write the config to disk.
+        storage_backend.write_experiment_config(replace_objects(readable_cfg))
 
         scores = {}
         repetitions = cfg.get("repetitions", 1)
@@ -191,7 +188,7 @@ def eval_fit(config):
             scores["std_" + k] = np.std(scores[k])
 
         readable_cfg["scores"] = scores
-        out_file_content = json.dumps(replace_objects(readable_cfg), sort_keys=True) + "\n"
+        out_file_content = replace_objects(readable_cfg)
 
         signal.alarm(0)
         return experiment_id, scores, out_file_content
@@ -217,14 +214,12 @@ def run_experiments(basecfg, cfgs, **kwargs):
     try:
         return_str = ""
         # results = []
-        if "out_path" in basecfg:
-            basecfg["out_path"] = os.path.abspath(basecfg["out_path"])
 
-        if not os.path.exists(basecfg["out_path"]):
-            os.makedirs(basecfg["out_path"])
+        # Initialize default storage backend.
+        if "out_path" in basecfg.keys():
+            storage_backend = FSStorageBackend(basecfg["out_path"])
         else:
-            if os.path.isfile(os.path.join(basecfg["out_path"], "results.jsonl")):
-                os.unlink(os.path.join(basecfg["out_path"], "results.jsonl"))
+            raise ValueError("Could not initialize storage backend. Key 'out_path' missing in base config.")
 
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
@@ -252,7 +247,8 @@ def run_experiments(basecfg, cfgs, **kwargs):
                         basecfg.get("timeout", 0),
                         os.path.join(basecfg["out_path"], str(experiment_id)),
                         experiment_id,
-                        cfg
+                        cfg,
+                        storage_backend
                     ) for experiment_id, cfg in enumerate(cfgs)
             ]
             print("SUBMITTED JOBS, NOW WAITING")
@@ -265,7 +261,8 @@ def run_experiments(basecfg, cfgs, **kwargs):
                     basecfg.get("timeout", 0),
                     os.path.join(basecfg["out_path"], str(experiment_id)),
                     experiment_id,
-                    cfg
+                    cfg,
+                    storage_backend
                 ) for experiment_id, cfg in enumerate(cfgs)
             ]
 
@@ -279,9 +276,9 @@ def run_experiments(basecfg, cfgs, **kwargs):
             random.shuffle(configurations)
             for result in tqdm(to_iterator(configurations), total=len(configurations)):
                 if result is not None:
-                    experiment_id, results, out_file_content = result
-                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
-                        out_file.write(out_file_content)
+                    experiment_id, results, out_file_dict = result
+                    storage_backend.add_result(out_file_dict)
+
         elif backend == "malocher":
             malocher_dir = basecfg.get("malocher_dir", ".malocher_dir")
             malocher_machines = basecfg["malocher_machines"]
@@ -299,25 +296,21 @@ def run_experiments(basecfg, cfgs, **kwargs):
             )
             for job_id, eval_return in tqdm(results, total=len(configurations), disable=not verbose):
                 if eval_return is not None:
-                    experiment_id, results, out_file_content = eval_return
-                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
-                        out_file.write(out_file_content)
-
-
+                    experiment_id, results, out_file_dict = eval_return
+                    storage_backend.add_result(out_file_dict)
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
             for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total=len(configurations), disable=not verbose):
                 if eval_return is not None:
-                    experiment_id, results, out_file_content = eval_return
-                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
-                        out_file.write(out_file_content)
+                    experiment_id, results, out_file_dict = eval_return
+                    storage_backend.add_result(out_file_dict)
         else:
             for f in tqdm(configurations, disable=not verbose):
                 eval_return = eval_fit(f)
                 if eval_return is not None:
-                    experiment_id, results, out_file_content = eval_return
-                    with open(os.path.join(basecfg["out_path"], "results.jsonl"), "a", 1) as out_file:
-                        out_file.write(out_file_content)
+                    experiment_id, results, out_file_dict = eval_return
+                    storage_backend.add_result(out_file_dict)
+
     except Exception as e:
         return_str = str(e) + "\n"
         return_str += traceback.format_exc() + "\n"
