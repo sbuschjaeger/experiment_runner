@@ -203,7 +203,7 @@ def eval_fit(config):
 
 
 
-def run_experiments(basecfg, cfgs, **kwargs):
+def run_experiments(basecfg: dict, cfgs, **kwargs):
     """
     The main API call of the experiment_runner.
     Pass a base_cfg to configure the execution of the experiments.
@@ -215,11 +215,18 @@ def run_experiments(basecfg, cfgs, **kwargs):
         return_str = ""
         # results = []
 
-        # Initialize default storage backend.
-        if "out_path" in basecfg.keys():
-            storage_backend = FSStorageBackend(basecfg["out_path"])
+        # Initialize storage backend.
+        if "storage_backend" not in basecfg.keys():
+            print("No 'storage_backend' specified in base config. Defaulting to 'fs'.")
+            basecfg["storage_backend"] = "fs"
+
+        if basecfg["storage_backend"] == "fs":
+            if "out_path" in basecfg.keys():
+                storage_backend = FSStorageBackend(basecfg["out_path"])
+            else:
+                raise ValueError("Could not initialize storage backend 'fs'. Key 'out_path' missing in base config.")
         else:
-            raise ValueError("Could not initialize storage backend. Key 'out_path' missing in base config.")
+            raise ValueError(f"Unable to initialize storage backend. Unknown backend '{basecfg['storage_backend']}' provided.")
 
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
