@@ -37,6 +37,11 @@ class StorageBackend(ABC):
 
 class FSStorageBackend(StorageBackend):
     def __init__(self, out_path):
+        """
+        Initializes a storage backend which uses the local filesystem to store experiments and their results.
+
+        :param out_path: Directory path, which will be used to store experiments and result.
+        """
         self.out_path = os.path.abspath(out_path)
 
         if not os.path.exists(self.out_path):
@@ -46,6 +51,12 @@ class FSStorageBackend(StorageBackend):
                 os.unlink(os.path.join(self.out_path, "results.jsonl"))
 
     def write_experiment_config(self, cfg: dict):
+        """
+        Writes the configuration of an experiment to the database.
+
+        Throws TypeError if the configuration contains any non-serializable types.
+        :param cfg: The experiment configuration represented by a dictionary.
+        """
         # Get experiment id from config.
         experiment_id = cfg["experiment_id"]
 
@@ -61,21 +72,47 @@ class FSStorageBackend(StorageBackend):
             out.write(json.dumps(cfg, indent=4, default=self.__json_encoder__))
 
     def add_result(self, result: dict):
+        """
+        Writes the result of an experiment to the database.
+
+        Throws TypeError if the configuration contains any non-serializable types.
+        :param result: The experiment result represented by a dictionary.
+        """
         with open(os.path.join(self.out_path, "results.jsonl"), "a", 1) as out_file:
             out_file.write(json.dumps(result, sort_keys=True, default=self.__json_encoder__) + "\n")
 
 
 class MongoDBStorageBackend(StorageBackend):
     def __init__(self, mongo_host: str, mongo_port: int, mongo_database: str):
+        """
+        Initializes a storage backend which used MongoDB to store experiments and their results.
+
+        :param mongo_host: The host of the MongoDB server.
+        :param mongo_port: The port of the MongoDB server.
+        :param mongo_database: The name of the database, which should be used to store results.
+        """
+
         # Save properties.
         self.host = mongo_host
         self.port = mongo_port
         self.database = mongo_database
 
     def write_experiment_config(self, cfg: dict):
+        """
+        Writes the configuration of an experiment to the database.
+
+        Throws TypeError if the configuration contains any non-serializable types.
+        :param cfg: The experiment configuration represented by a dictionary.
+        """
         client = MongoClient(self.host, self.port)
         client[self.database]["experiments"].insert_one(json.loads(json.dumps(cfg, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB
 
     def add_result(self, result: dict):
+        """
+        Writes the result of an experiment to the database.
+
+        Throws TypeError if the configuration contains any non-serializable types.
+        :param result: The experiment result represented by a dictionary.
+        """
         client = MongoClient(self.host, self.port)
         client[self.database]["results"].insert_one(json.loads(json.dumps(result, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB
