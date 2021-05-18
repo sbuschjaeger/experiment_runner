@@ -1,7 +1,9 @@
 import json
 import os
+import inspect
+import numpy as np
+from functools import partial
 from abc import ABC, abstractmethod
-
 from pymongo import MongoClient
 
 
@@ -13,6 +15,24 @@ class StorageBackend(ABC):
     @abstractmethod
     def add_result(self, result: dict):
         pass
+
+    def __json_encoder__(self, v):
+        if isinstance(v, np.generic):
+            return v.item()
+        elif isinstance(v, np.ndarray):
+            return v.tolist()
+        elif isinstance(v, partial):
+            return v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(v.keywords)
+        elif callable(v) or inspect.isclass(v):
+            try:
+                return v.__name__
+            except:
+                return str(v) #.__name__
+        elif isinstance(v, object) and v.__class__.__module__ != 'builtins':
+            # print(type(v))
+            return str(v)
+        else:
+            raise TypeError()
 
 
 class FSStorageBackend(StorageBackend):
@@ -38,11 +58,11 @@ class FSStorageBackend(StorageBackend):
 
         # Write the config to disk.
         with open(os.path.join(out_path, "config.json"), 'w') as out:
-            out.write(json.dumps(cfg, indent=4))
+            out.write(json.dumps(cfg, indent=4, default=self.__json_encoder__))
 
     def add_result(self, result: dict):
         with open(os.path.join(self.out_path, "results.jsonl"), "a", 1) as out_file:
-            out_file.write(json.dumps(result, sort_keys=True) + "\n")
+            out_file.write(json.dumps(result, sort_keys=True, default=self.__json_encoder__) + "\n")
 
 
 class MongoDBStorageBackend(StorageBackend):
@@ -54,8 +74,8 @@ class MongoDBStorageBackend(StorageBackend):
 
     def write_experiment_config(self, cfg: dict):
         client = MongoClient(self.host, self.port)
-        client[self.database]["experiments"].insert_one(cfg)
+        client[self.database]["experiments"].insert_one(json.loads(json.dumps(cfg, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB
 
     def add_result(self, result: dict):
         client = MongoClient(self.host, self.port)
-        client[self.database]["results"].insert_one(result)
+        client[self.database]["results"].insert_one(json.loads(json.dumps(result, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB

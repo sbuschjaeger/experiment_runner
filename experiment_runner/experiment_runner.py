@@ -1,5 +1,4 @@
 """Experiment Runner. It's great!"""
-from functools import partial
 import os
 import inspect
 import random
@@ -29,35 +28,6 @@ def stacktrace(exception):
     print("\n".join(traceback.format_exception(None, exception, exception.__traceback__)),
         #file=sys.stderr,
         flush=True)
-
-def replace_objects(d):
-    """
-    convenience method to json-serialize configs that include objects,
-    partials, numpy-arrays and other non-json-conform things.
-    """
-    d = d.copy()
-    for k, v in d.items():
-        if isinstance(v, dict):
-            d[k] = replace_objects(v)
-        elif isinstance(v, list):
-            d[k] = [replace_objects({"key":vv})["key"] for vv in v]
-        elif isinstance(v, np.generic):
-            d[k] = v.item()
-        elif isinstance(v, np.ndarray):
-            d[k] = k
-        elif isinstance(v, partial):
-            d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
-        elif callable(v) or inspect.isclass(v):
-            try:
-                d[k] = v.__name__
-            except:
-                d[k] = str(v) #.__name__
-        elif isinstance(v, object) and v.__class__.__module__ != 'builtins':
-            # print(type(v))
-            d[k] = str(v)
-        else:
-            d[k] = v
-    return d
 
 def get_ctor_arguments(clazz):
     """
@@ -144,7 +114,7 @@ def eval_fit(config):
             readable_cfg["out_path"] = storage_backend.out_path
 
         # Write the config to the storage backend.
-        storage_backend.write_experiment_config(replace_objects(readable_cfg))
+        storage_backend.write_experiment_config(readable_cfg)
 
         scores = {}
         repetitions = cfg.get("repetitions", 1)
@@ -194,10 +164,9 @@ def eval_fit(config):
             scores["std_" + k] = np.std(scores[k])
 
         readable_cfg["scores"] = scores
-        out_file_content = replace_objects(readable_cfg)
 
         signal.alarm(0)
-        return experiment_id, scores, out_file_content
+        return experiment_id, scores, readable_cfg
     except Exception as identifier:
         stacktrace(identifier)
         # Ray is somtimes a little bit to quick in killing our processes if something bad happens
