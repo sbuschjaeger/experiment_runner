@@ -111,6 +111,14 @@ class MongoDBStorageBackend(StorageBackend):
         self.host = mongo_host
         self.port = mongo_port
         self.database = mongo_database
+        self.client = None
+
+    def __getstate__(self):
+        """
+        Constructs a state dict of this object. Mainly used to appropriately support pickling.
+        :return: Dictionary holding the state of this particular storage backend instance.
+        """
+        return {"host": self.host, "port": self.port, "database": self.database, "client": None}
 
     def write_experiment_config(self, cfg: dict):
         """
@@ -119,8 +127,9 @@ class MongoDBStorageBackend(StorageBackend):
         Throws TypeError if the configuration contains any non-serializable types.
         :param cfg: The experiment configuration represented by a dictionary.
         """
-        client = MongoClient(self.host, self.port)
-        client[self.database]["experiments"].insert_one(json.loads(json.dumps(cfg, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB
+        if self.client is None:
+            self.client = MongoClient(self.host, self.port)
+        self.client[self.database]["experiments"].insert_one(json.loads(json.dumps(cfg, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB
 
     def add_result(self, result: dict):
         """
@@ -129,5 +138,6 @@ class MongoDBStorageBackend(StorageBackend):
         Throws TypeError if the configuration contains any non-serializable types.
         :param result: The experiment result represented by a dictionary.
         """
-        client = MongoClient(self.host, self.port)
-        client[self.database]["results"].insert_one(json.loads(json.dumps(result, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB
+        if self.client is None:
+            self.client = MongoClient(self.host, self.port)
+        self.client[self.database]["results"].insert_one(json.loads(json.dumps(result, default=self.__json_encoder__)))  # dumping + loading ensures, that no JSON-incompatible objects are saved to MongoDB
