@@ -8,6 +8,9 @@ from pymongo import MongoClient
 
 
 class StorageBackend(ABC):
+    """
+    Abstract base class (ABC) for storage backends.
+    """
     @abstractmethod
     def write_experiment_config(self, cfg: dict):
         pass
@@ -17,6 +20,12 @@ class StorageBackend(ABC):
         pass
 
     def __json_encoder__(self, v):
+        '''
+        Custom JSON encoder, which may be used together with JSON.dump(s) + default. Commonly used for storing results through serialization.
+        Handles some of the types, which are usually used within experimental routines.
+        :param v: Object to serialize.
+        :return: JSON-friendly object, which can be serialized using the json package.
+        '''
         if isinstance(v, np.generic):
             return v.item()
         elif isinstance(v, np.ndarray):
@@ -45,9 +54,11 @@ class FSStorageBackend(StorageBackend):
         """
         self.out_path = os.path.abspath(out_path)
 
+        # Check, whether initialization should be refused.
         if not force and os.path.exists(self.out_path) and os.listdir(self.out_path):
             raise ValueError(f"FSStorageBackend: Output directory at '{self.out_path}' does already exist and is not empty.")
 
+        # Create necessary directory structures.
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
         else:
