@@ -1,4 +1,5 @@
 """Experiment Runner. It's great!"""
+import datetime
 import os
 import inspect
 import random
@@ -212,7 +213,7 @@ def run_experiments(basecfg: dict, cfgs, **kwargs):
         elif basecfg["storage_backend"] == "mongodb":
             storage_backend = MongoDBStorageBackend(basecfg.get("mongo_host", "localhost"),
                                                     basecfg.get("mongo_port", 27017),
-                                                    basecfg.get("mongo_database", "experiment_runner"))
+                                                    basecfg.get("mongo_database", f"experiment_runner_{'{0:%d%m%Y_%H%M%S}'.format(datetime.datetime.now())}"))
             if verbose:
                 print(f"Storage backend: '{basecfg['storage_backend']}' connected to '{storage_backend.host}:{storage_backend.port}' and database '{storage_backend.database}'.")
         else:
