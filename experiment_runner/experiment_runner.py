@@ -204,7 +204,7 @@ def run_experiments(basecfg: dict, cfgs, **kwargs):
         # Initialize storage backend.
         if basecfg["storage_backend"] == "fs":
             if "out_path" in basecfg.keys():
-                storage_backend = FSStorageBackend(basecfg["out_path"])
+                storage_backend = FSStorageBackend(basecfg["out_path"], basecfg.get("fs_force", False))
                 if verbose:
                     print(f"Storage backend: '{basecfg['storage_backend']}' with output path '{basecfg['out_path']}'.")
             else:

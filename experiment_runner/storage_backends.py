@@ -36,13 +36,17 @@ class StorageBackend(ABC):
 
 
 class FSStorageBackend(StorageBackend):
-    def __init__(self, out_path):
+    def __init__(self, out_path, force=False):
         """
         Initializes a storage backend which uses the local filesystem to store experiments and their results.
 
         :param out_path: Directory path, which will be used to store experiments and result.
+        :param force: Allows initialization of the storage backend even when the output path is existent and not empty.
         """
         self.out_path = os.path.abspath(out_path)
+
+        if not force and os.path.exists(self.out_path) and os.listdir(self.out_path):
+            raise ValueError(f"FSStorageBackend: Output directory at '{self.out_path}' does already exist and is not empty.")
 
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
