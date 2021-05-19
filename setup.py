@@ -15,6 +15,7 @@ setup(name='experiment_runner',
       ],
       extras_require={
             "ray": ["ray"],
-            "malocher": ["malocher @ git+https://github.com/Whadup/malocher@main#egg=malocher"]
+            "malocher": ["malocher @ git+https://github.com/Whadup/malocher@main#egg=malocher"],
+            "pymongo": ["pymongo"]
       }
 )

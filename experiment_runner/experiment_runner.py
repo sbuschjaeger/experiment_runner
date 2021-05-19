@@ -1,6 +1,5 @@
 """Experiment Runner. It's great!"""
-from functools import partial
-import json
+import datetime
 import os
 import inspect
 import random
@@ -10,13 +9,14 @@ from multiprocessing import Pool
 import copy
 import signal
 import numpy as np
+from experiment_runner.storage_backends import FSStorageBackend, MongoDBStorageBackend
 from tqdm import tqdm
 try:
     import ray
     @ray.remote(max_calls=1)
-    def ray_eval_fit(pre, fit, post, out_path, experiment_id, cfg):
+    def ray_eval_fit(pre, fit, post, experiment_id, cfg, storage_backend):
         """wraps eval_fit to run with ray .remote()"""
-        return eval_fit((pre, fit, post, out_path, experiment_id, cfg))
+        return eval_fit((pre, fit, post, experiment_id, cfg, storage_backend))
 except ImportError as error:
     ray = None
 try:
@@ -29,35 +29,6 @@ def stacktrace(exception):
     print("\n".join(traceback.format_exception(None, exception, exception.__traceback__)),
         #file=sys.stderr,
         flush=True)
-
-def replace_objects(d):
-    """
-    convenience method to json-serialize configs that include objects,
-    partials, numpy-arrays and other non-json-conform things.
-    """
-    d = d.copy()
-    for k, v in d.items():
-        if isinstance(v, dict):
-            d[k] = replace_objects(v)
-        elif isinstance(v, list):
-            d[k] = [replace_objects({"key":vv})["key"] for vv in v]
-        elif isinstance(v, np.generic):
-            d[k] = v.item()
-        elif isinstance(v, np.ndarray):
-            d[k] = k
-        elif isinstance(v, partial):
-            d[k] = v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(replace_objects(v.keywords))
-        elif callable(v) or inspect.isclass(v):
-            try:
-                d[k] = v.__name__
-            except:
-                d[k] = str(v) #.__name__
-        elif isinstance(v, object) and v.__class__.__module__ != 'builtins':
-            # print(type(v))
-            d[k] = str(v)
-        else:
-            d[k] = v
-    return d
 
 def get_ctor_arguments(clazz):
     """
@@ -127,7 +98,7 @@ def eval_fit(config):
     handles repeated execution of experiments, measures fit time and
     stores results.
     """
-    pre, fit, post, timeout, out_path, experiment_id, cfg = config
+    pre, fit, post, timeout, experiment_id, cfg, storage_backend = config
     if timeout > 0:
         signal.signal(signal.SIGALRM, raise_timeout)
         signal.alarm(timeout)
@@ -140,31 +111,33 @@ def eval_fit(config):
         #     warnings.filterwarnings('ignore')
         readable_cfg = copy.deepcopy(cfg)
         readable_cfg["experiment_id"] = experiment_id
-        readable_cfg["out_path"] = out_path
+        if isinstance(storage_backend, FSStorageBackend):
+            readable_cfg["out_path"] = storage_backend.out_path
 
-        if not os.path.exists(out_path):
-            os.makedirs(out_path)
-
-        with open(out_path + "/config.json", 'w') as out:
-            out.write(json.dumps(replace_objects(readable_cfg), indent=4))
+        # Write the config to the storage backend.
+        storage_backend.write_experiment_config(readable_cfg)
 
         scores = {}
         repetitions = cfg.get("repetitions", 1)
         for i in range(repetitions):
-            if repetitions > 1:
-                rep_out_path = os.path.join(out_path, str(i))
-                if not os.path.exists(rep_out_path):
-                    os.makedirs(rep_out_path)
-            else:
-                rep_out_path = out_path
-
+            # Define an experiment config for each repetition.
             experiment_cfg = {
                 **cfg,
-                'experiment_id':experiment_id,
-                'out_path':rep_out_path,
-                'run_id':i
+                'experiment_id': experiment_id,
+                'run_id': i
             }
 
+            # Update output paths, given that filesystem storage is used.
+            if isinstance(storage_backend, FSStorageBackend):
+                if repetitions > 1:
+                    rep_out_path = os.path.join(storage_backend.out_path, str(i))
+                    if not os.path.exists(rep_out_path):
+                        os.makedirs(rep_out_path)
+                else:
+                    rep_out_path = storage_backend.out_path
+                experiment_cfg["out_path"] = rep_out_path
+
+            # Run the experiment.
             if pre is not None:
                 pre_stuff = pre(experiment_cfg)
                 start_time = time.time()
@@ -186,15 +159,15 @@ def eval_fit(config):
                     for k in list(scores.keys()):
                         scores[k].append(cur_scores[k])
 
+        # Process results.
         for k in list(scores.keys()):
             scores["mean_" + k] = np.mean(scores[k])
             scores["std_" + k] = np.std(scores[k])
 
         readable_cfg["scores"] = scores
-        out_file_content = json.dumps(replace_objects(readable_cfg), sort_keys=True) + "\n"
 
         signal.alarm(0)
-        return experiment_id, scores, out_file_content
+        return experiment_id, scores, readable_cfg
     except Exception as identifier:
         stacktrace(identifier)
         # Ray is somtimes a little bit to quick in killing our processes if something bad happens
@@ -206,7 +179,7 @@ def eval_fit(config):
 
 
 
-def run_experiments(basecfg, cfgs, **kwargs):
+def run_experiments(basecfg: dict, cfgs, **kwargs):
     """
     The main API call of the experiment_runner.
     Pass a base_cfg to configure the execution of the experiments.
@@ -217,14 +190,6 @@ def run_experiments(basecfg, cfgs, **kwargs):
     try:
         return_str = ""
         # results = []
-        if "out_path" in basecfg:
-            basecfg["out_path"] = os.path.abspath(basecfg["out_path"])
-
-        if not os.path.exists(basecfg["out_path"]):
-            os.makedirs(basecfg["out_path"])
-        else:
-            if os.path.isfile(basecfg["out_path"] + "/results.jsonl"):
-                os.unlink(basecfg["out_path"] + "/results.jsonl")
 
         # pool = NonDaemonPool(n_cores, initializer=init, initargs=(l,shared_list))
         # Lets use imap and not starmap to keep track of the progress
@@ -232,8 +197,30 @@ def run_experiments(basecfg, cfgs, **kwargs):
         backend = basecfg.get("backend", "single")
         verbose = basecfg.get("verbose", True)
 
-        print("Starting {} experiments via {} backend".format(len(cfgs), backend))
+        # Choose storage backend from base cfg.
+        if "storage_backend" not in basecfg.keys():
+            print("No 'storage_backend' specified in base config. Defaulting to 'fs'.")
+            basecfg["storage_backend"] = "fs"
 
+        # Initialize storage backend.
+        if basecfg["storage_backend"] == "fs":
+            if "out_path" in basecfg.keys():
+                storage_backend = FSStorageBackend(basecfg["out_path"], basecfg.get("fs_force", False))
+                if verbose:
+                    print(f"Storage backend: '{basecfg['storage_backend']}' with output path '{basecfg['out_path']}'.")
+            else:
+                raise ValueError("Could not initialize storage backend 'fs'. Key 'out_path' missing in base config.")
+        elif basecfg["storage_backend"] == "mongodb":
+            storage_backend = MongoDBStorageBackend(basecfg.get("mongo_host", "localhost"),
+                                                    basecfg.get("mongo_port", 27017),
+                                                    basecfg.get("mongo_database", f"experiment_runner_{'{0:%d%m%Y_%H%M%S}'.format(datetime.datetime.now())}"))
+            if verbose:
+                print(f"Storage backend: '{basecfg['storage_backend']}' connected to '{storage_backend.host}:{storage_backend.port}' and database '{storage_backend.database}'.")
+        else:
+            raise ValueError(f"Unable to initialize storage backend. Unknown backend '{basecfg['storage_backend']}' provided.")
+
+        # Run experiments.
+        print("Starting {} experiments via {} backend".format(len(cfgs), backend))
         if backend == "ray":
             ray.init(
                 address=basecfg.get("address", "auto"),
@@ -250,9 +237,9 @@ def run_experiments(basecfg, cfgs, **kwargs):
                         basecfg.get("fit", None),
                         basecfg.get("post", None),
                         basecfg.get("timeout", 0),
-                        os.path.join(basecfg["out_path"], str(experiment_id)),
                         experiment_id,
-                        cfg
+                        cfg,
+                        storage_backend
                     ) for experiment_id, cfg in enumerate(cfgs)
             ]
             print("SUBMITTED JOBS, NOW WAITING")
@@ -263,9 +250,9 @@ def run_experiments(basecfg, cfgs, **kwargs):
                     basecfg.get("fit", None),
                     basecfg.get("post", None),
                     basecfg.get("timeout", 0),
-                    os.path.join(basecfg["out_path"], str(experiment_id)),
                     experiment_id,
-                    cfg
+                    cfg,
+                    storage_backend
                 ) for experiment_id, cfg in enumerate(cfgs)
             ]
 
@@ -279,9 +266,9 @@ def run_experiments(basecfg, cfgs, **kwargs):
             random.shuffle(configurations)
             for result in tqdm(to_iterator(configurations), total=len(configurations)):
                 if result is not None:
-                    experiment_id, results, out_file_content = result
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                        out_file.write(out_file_content)
+                    experiment_id, results, out_file_dict = result
+                    storage_backend.add_result(out_file_dict)
+
         elif backend == "malocher":
             malocher_dir = basecfg.get("malocher_dir", ".malocher_dir")
             malocher_machines = basecfg["malocher_machines"]
@@ -299,25 +286,21 @@ def run_experiments(basecfg, cfgs, **kwargs):
             )
             for job_id, eval_return in tqdm(results, total=len(configurations), disable=not verbose):
                 if eval_return is not None:
-                    experiment_id, results, out_file_content = eval_return
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                        out_file.write(out_file_content)
-
-
+                    experiment_id, results, out_file_dict = eval_return
+                    storage_backend.add_result(out_file_dict)
         elif backend == "multiprocessing":
             pool = Pool(basecfg.get("num_cpus", 1))
             for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total=len(configurations), disable=not verbose):
                 if eval_return is not None:
-                    experiment_id, results, out_file_content = eval_return
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                        out_file.write(out_file_content)
+                    experiment_id, results, out_file_dict = eval_return
+                    storage_backend.add_result(out_file_dict)
         else:
             for f in tqdm(configurations, disable=not verbose):
                 eval_return = eval_fit(f)
                 if eval_return is not None:
-                    experiment_id, results, out_file_content = eval_return
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                        out_file.write(out_file_content)
+                    experiment_id, results, out_file_dict = eval_return
+                    storage_backend.add_result(out_file_dict)
+
     except Exception as e:
         return_str = str(e) + "\n"
         return_str += traceback.format_exc() + "\n"
