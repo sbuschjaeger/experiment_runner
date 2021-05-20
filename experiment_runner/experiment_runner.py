@@ -7,6 +7,7 @@ import random
 import time
 import traceback
 from multiprocessing import Pool
+import multiprocessing 
 import copy
 import signal
 import numpy as np
@@ -196,15 +197,15 @@ def eval_fit(config):
         signal.alarm(0)
         return experiment_id, scores, out_file_content
     except Exception as identifier:
-        stacktrace(identifier)
+        if not isinstance(identifier, TimeoutError):
+            stacktrace(identifier)
+
         # Ray is somtimes a little bit to quick in killing our processes if something bad happens
         # In this case we do not see the stack trace which is super annyoing. Therefore, we sleep a
         # second to wait until the print has been processed / flushed
         signal.alarm(0)
-        time.sleep(1.0)
+        time.sleep(5.0)
         return None
-
-
 
 def run_experiments(basecfg, cfgs, **kwargs):
     """
@@ -305,12 +306,14 @@ def run_experiments(basecfg, cfgs, **kwargs):
 
 
         elif backend == "multiprocessing":
-            pool = Pool(basecfg.get("num_cpus", 1))
-            for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total=len(configurations), disable=not verbose):
-                if eval_return is not None:
-                    experiment_id, results, out_file_content = eval_return
-                    with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
-                        out_file.write(out_file_content)
+            with multiprocessing.get_context("spawn").Pool(basecfg.get("num_cpus", 1), maxtasksperchild=1) as pool:
+            #pool = Pool(basecfg.get("num_cpus", 1))
+            #pool = multiprocessing.get_context('spawn').Pool(basecfg.get("num_cpus", 1))
+                for eval_return in tqdm(pool.imap_unordered(eval_fit, configurations), total=len(configurations), disable=not verbose):
+                    if eval_return is not None:
+                        experiment_id, results, out_file_content = eval_return
+                        with open(basecfg["out_path"] + "/results.jsonl", "a", 1) as out_file:
+                            out_file.write(out_file_content)
         else:
             for f in tqdm(configurations, disable=not verbose):
                 eval_return = eval_fit(f)
