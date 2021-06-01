@@ -18,7 +18,7 @@ class StorageBackend(ABC):
     @abstractmethod
     def add_result(self, result: dict):
         pass
-
+    
     def __json_encoder__(self, v):
         '''
         Custom JSON encoder, which may be used together with JSON.dump(s) + default. Commonly used for storing results through serialization.
@@ -29,7 +29,7 @@ class StorageBackend(ABC):
         if isinstance(v, np.generic):
             return v.item()
         elif isinstance(v, np.ndarray):
-            return v.tolist()
+            return "numpy-array" #v.tolist()
         elif isinstance(v, partial):
             return v.func.__name__ + "_" + "_".join([str(arg) for arg in v.args]) + str(v.keywords)
         elif callable(v) or inspect.isclass(v):

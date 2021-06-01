@@ -113,7 +113,7 @@ def eval_fit(config):
         readable_cfg = copy.deepcopy(cfg)
         readable_cfg["experiment_id"] = experiment_id
         if isinstance(storage_backend, FSStorageBackend):
-            readable_cfg["out_path"] = storage_backend.out_path
+            readable_cfg["out_path"] = os.path.join(storage_backend.out_path, str(experiment_id))
 
         # Write the config to the storage backend.
         storage_backend.write_experiment_config(readable_cfg)
@@ -131,12 +131,12 @@ def eval_fit(config):
             # Update output paths, given that filesystem storage is used.
             if isinstance(storage_backend, FSStorageBackend):
                 if repetitions > 1:
-                    rep_out_path = os.path.join(storage_backend.out_path, str(i))
+                    rep_out_path = os.path.join(storage_backend.out_path, str(experiment_id), str(i))
                     if not os.path.exists(rep_out_path):
                         os.makedirs(rep_out_path)
                 else:
                     rep_out_path = storage_backend.out_path
-                experiment_cfg["out_path"] = rep_out_path
+                experiment_cfg["out_path"] = os.path.join(storage_backend.out_path, str(experiment_id))
 
             # Run the experiment.
             if pre is not None:
